@@ -381,18 +381,6 @@ python  # src/parsers/validator.py
                       })
           return errors
 
-
-
-
-
-
-
-
-
-
-
-
-
 Phase 4: Telegram Bot Implementation (Week 3-4)
 Task 4.1: Set Up Bot Framework
 
@@ -622,6 +610,21 @@ python  # src/bot/callbacks.py
           formatted_text,
           parse_mode='HTML'
       )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+      
 Phase 5: Leaderboard Generation (Week 4-5)
 Task 5.1: Create Leaderboard Generator
 

@@ -9,7 +9,8 @@ import logging
 from typing import Dict, List, Tuple, Any
 from datetime import datetime, date, time
 
-from ..config.stats_config import get_stat_by_idx, get_badge_level
+from config.stats_config import get_stat_by_idx, get_badge_level
+from .business_rules_validator import BusinessRulesValidator
 
 
 logger = logging.getLogger(__name__)
@@ -21,6 +22,7 @@ class StatsValidator:
     def __init__(self):
         self.minimum_stats_count = 12
         self.required_indices = [1, 2, 3, 4]  # agent name, faction, date, time
+        self.business_rules_validator = BusinessRulesValidator()
 
     def validate_parsed_stats(self, parsed_data: Dict) -> Tuple[bool, List[Dict]]:
         """
@@ -46,6 +48,10 @@ class StatsValidator:
         required_warnings = self._validate_required_fields(parsed_data)
         if required_warnings:
             return False, required_warnings
+
+        # **NEW: Enhanced business rules validation**
+        business_warnings = self.business_rules_validator.validate_business_rules(parsed_data)
+        warnings.extend(business_warnings)
 
         # Validate numeric values
         numeric_warnings = self._validate_numeric_values(parsed_data)
@@ -234,7 +240,7 @@ class StatsValidator:
         if 4 in parsed_data:
             time_str = parsed_data[4].get('value', '')
             try:
-                time.strptime(time_str, '%H:%M:%S')
+                datetime.strptime(time_str, '%H:%M:%S').time()
             except ValueError:
                 warnings.append({
                     'type': 'invalid_time_format',
@@ -336,7 +342,7 @@ class StatsValidator:
 
         unknown_count = 0
         for key, stat in parsed_data.items():
-            if key.startswith('unknown_'):
+            if isinstance(key, str) and key.startswith('unknown_'):
                 unknown_count += 1
                 warnings.append({
                     'type': 'unknown_stat',
