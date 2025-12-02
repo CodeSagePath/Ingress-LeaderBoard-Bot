@@ -1,0 +1,1533 @@
+Project Analysis
+The existing PHP code implements:
+
+Stats Parser - Parses Ingress Prime player statistics from Telegram messages
+Data Structure - Manages 140+ stat types with badges, groups, and metadata
+Multiple Format Support - Handles both tab-separated and space-separated stats
+Validation - Checks for unknown stats, position mismatches, and data integrity
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Complete Project Roadmap
+Phase 1: Project Setup & Foundation (Week 1)
+Task 1.1: Technology Stack Selection
+
+Subtask 1.1.1: Choose between Python and Node.js
+
+Python: Better for data processing, cleaner syntax, strong Telegram library (python-telegram-bot)
+Node.js: Better async handling, faster I/O, good Telegram library (node-telegram-bot-api)
+Recommendation: Python for easier maintenance and data handling
+
+
+Subtask 1.1.2: Select database
+
+Options: PostgreSQL (structured data), MongoDB (flexible schema), SQLite (simple setup)
+Recommendation: PostgreSQL for relational queries and leaderboard generation
+
+
+Subtask 1.1.3: Choose hosting platform
+
+Options: Heroku (easy), DigitalOcean (flexible), AWS (scalable), Railway (modern)
+Recommendation: Railway or Heroku for quick deployment
+
+
+
+Task 1.2: Development Environment Setup
+
+Subtask 1.2.1: Install dependencies
+
+bash  # Python
+  python3 -m venv venv
+  source venv/bin/activate
+  pip install python-telegram-bot psycopg2-binary python-dotenv
+  
+  # OR Node.js
+  npm init -y
+  npm install node-telegram-bot-api pg dotenv
+```
+
+- **Subtask 1.2.2**: Create project structure
+```
+  ingress-leaderboard-bot/
+  ├── src/
+  │   ├── bot/
+  │   │   ├── handlers.py
+  │   │   ├── commands.py
+  │   │   └── callbacks.py
+  │   ├── parsers/
+  │   │   ├── stats_parser.py
+  │   │   └── validator.py
+  │   ├── database/
+  │   │   ├── models.py
+  │   │   └── queries.py
+  │   ├── leaderboard/
+  │   │   ├── generator.py
+  │   │   └── formatters.py
+  │   └── config/
+  │       ├── stats_config.py
+  │       └── settings.py
+  ├── tests/
+  ├── data/
+  ├── .env
+  ├── requirements.txt
+  └── README.md
+
+Subtask 1.2.3: Set up version control
+
+bash  git init
+  echo "venv/" > .gitignore
+  echo ".env" >> .gitignore
+  git add .
+  git commit -m "Initial project setup"
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Phase 2: Stats Configuration & Data Modeling (Week 1-2)
+Task 2.1: Convert PHP Stats Configuration to Python/Node.js
+
+Subtask 2.1.1: Create stats configuration structure
+
+python  # src/config/stats_config.py
+  
+  STAT_GROUPS = {
+      'HEAD': {'idx': '---', 'name': 'Head'},
+      'DISCOVERY': {'idx': 'DIS', 'name': 'Discovery'},
+      'BUILDING': {'idx': 'BUI', 'name': 'Building'},
+      'RESOURCE': {'idx': 'RES', 'name': 'Resource Gathering'},
+      # ... all groups
+  }
+  
+  STATS_DEFINITIONS = [
+      {
+          'idx': 0,
+          'original_pos': 10,
+          'group': 'HEAD',
+          'type': 'A',
+          'name': 'Time Span',
+      },
+      {
+          'idx': 8,
+          'original_pos': 90,
+          'group': 'DISCOVERY',
+          'type': 'N',
+          'name': 'Unique Portals Visited',
+          'badges': {
+              'name': 'Explorer',
+              'levels': [100, 1000, 2000, 10000, 30000]
+          }
+      },
+      # ... all 140+ stats
+  ]
+
+Subtask 2.1.2: Create helper functions
+
+python  def get_stat_by_idx(idx):
+      """Retrieve stat definition by index"""
+      pass
+  
+  def get_stat_by_name(name):
+      """Retrieve stat definition by name"""
+      pass
+  
+  def get_badge_level(stat_idx, value):
+      """Calculate badge level for a stat value"""
+      pass
+Task 2.2: Database Schema Design
+
+Subtask 2.2.1: Design database tables
+
+sql  -- Users table
+  CREATE TABLE users (
+      id SERIAL PRIMARY KEY,
+      telegram_id BIGINT UNIQUE NOT NULL,
+      username VARCHAR(255),
+      first_name VARCHAR(255),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  );
+  
+  -- Agents table
+  CREATE TABLE agents (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER REFERENCES users(id),
+      agent_name VARCHAR(255) UNIQUE NOT NULL,
+      faction VARCHAR(20) CHECK (faction IN ('Enlightened', 'Resistance')),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  );
+  
+  -- Stats submissions table
+  CREATE TABLE stats_submissions (
+      id SERIAL PRIMARY KEY,
+      agent_id INTEGER REFERENCES agents(id),
+      submission_date DATE NOT NULL,
+      submission_time TIME NOT NULL,
+      stats_type VARCHAR(20) DEFAULT 'ALL TIME',
+      level INTEGER,
+      lifetime_ap BIGINT,
+      current_ap BIGINT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(agent_id, submission_date, stats_type)
+  );
+  
+  -- Individual stats table
+  CREATE TABLE agent_stats (
+      id SERIAL PRIMARY KEY,
+      submission_id INTEGER REFERENCES stats_submissions(id) ON DELETE CASCADE,
+      stat_idx INTEGER NOT NULL,
+      stat_name VARCHAR(255) NOT NULL,
+      stat_value BIGINT NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  );
+  
+  -- Leaderboard cache (optional, for performance)
+  CREATE TABLE leaderboard_cache (
+      id SERIAL PRIMARY KEY,
+      stat_idx INTEGER NOT NULL,
+      period VARCHAR(20), -- 'all_time', 'monthly', 'weekly'
+      data JSONB,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  );
+  
+  -- Indexes for performance
+  CREATE INDEX idx_agent_stats_submission ON agent_stats(submission_id);
+  CREATE INDEX idx_agent_stats_stat_idx ON agent_stats(stat_idx);
+  CREATE INDEX idx_stats_submissions_agent ON stats_submissions(agent_id);
+  CREATE INDEX idx_stats_submissions_date ON stats_submissions(submission_date);
+
+Subtask 2.2.2: Create database models (using SQLAlchemy for Python)
+
+python  # src/database/models.py
+  from sqlalchemy import Column, Integer, String, BigInteger, DateTime, ForeignKey
+  from sqlalchemy.ext.declarative import declarative_base
+  
+  Base = declarative_base()
+  
+  class User(Base):
+      __tablename__ = 'users'
+      # Define columns
+      pass
+  
+  class Agent(Base):
+      __tablename__ = 'agents'
+      # Define columns
+      pass
+  
+  class StatsSubmission(Base):
+      __tablename__ = 'stats_submissions'
+      # Define columns
+      pass
+  
+  class AgentStat(Base):
+      __tablename__ = 'agent_stats'
+      # Define columns
+      pass
+Phase 3: Stats Parser Implementation (Week 2-3)
+Task 3.1: Build Core Parser
+
+Subtask 3.1.1: Create base parser class
+
+python  # src/parsers/stats_parser.py
+  
+  class StatsParser:
+      def __init__(self):
+          self.stats_definitions = STATS_DEFINITIONS
+          self.minimum_stats_count = 12
+          
+      def parse(self, stats_text):
+          """Main parsing entry point"""
+          stats_text = self.clean_input(stats_text)
+          
+          if not self.is_valid_stats(stats_text):
+              return {'error': 'Invalid stats format', 'error_code': 1}
+          
+          # Detect format
+          if '\t' in stats_text:
+              return self.parse_tabulated(stats_text)
+          else:
+              return self.parse_telegram(stats_text)
+      
+      def clean_input(self, text):
+          """Clean up input text"""
+          # Remove quotes
+          text = text.strip('"')
+          # Normalize spaces
+          import re
+          text = re.sub(r' {2,}', ' ', text)
+          text = re.sub(r'\n{2,}', '\n', text)
+          return text
+      
+      def is_valid_stats(self, text):
+          """Check if text starts with stats header"""
+          return text.startswith('Time Span Agent Name Agent Faction') or \
+                 text.startswith('Time Span\tAgent Name\tAgent Faction')
+
+Subtask 3.1.2: Implement Telegram format parser (space-separated)
+
+python  def parse_telegram(self, stats_text):
+      """Parse space-separated stats from Telegram"""
+      lines = stats_text.strip().split('\n')
+      header_line = lines[0]
+      values_line = lines[1]
+      
+      # Extract values
+      values = values_line.split(' ')
+      
+      # Validate date position (handle multi-word time spans)
+      date_position = self.find_date_position(values)
+      if date_position == -1:
+          return {'error': 'Could not parse stats', 'error_code': 2}
+      
+      # Consolidate time span if multi-word
+      values = self.consolidate_time_span(values, date_position)
+      
+      # Check for ALL TIME
+      if values[0] != 'ALL TIME':
+          return {'error': 'Not ALL TIME stats', 'error_code': 3}
+      
+      # Parse stats by matching names
+      result = self.match_stats_to_values(header_line, values)
+      
+      return result
+
+Subtask 3.1.3: Implement tab-separated parser
+
+python  def parse_tabulated(self, stats_text):
+      """Parse tab-separated stats"""
+      lines = stats_text.strip().split('\n')
+      names = lines[0].split('\t')
+      values = lines[1].split('\t')
+      
+      if values[0] != 'ALL TIME':
+          return {'error': 'Not ALL TIME stats', 'error_code': 3}
+      
+      result = {
+          'info': 'tabulated',
+          'timezone': 'UTC',
+          'timestamp': int(time.time())
+      }
+      
+      # Map names to stat definitions
+      for i, name in enumerate(names):
+          stat_def = self.find_stat_by_name(name)
+          if stat_def and i < len(values):
+              result[stat_def['idx']] = {
+                  'idx': stat_def['idx'],
+                  'value': values[i],
+                  'name': stat_def['name'],
+                  'type': stat_def['type']
+              }
+      
+      return result
+Task 3.2: Build Validation System
+
+Subtask 3.2.1: Create validator class
+
+python  # src/parsers/validator.py
+  
+  class StatsValidator:
+      def validate_parsed_stats(self, parsed_data):
+          """Validate parsed stats data"""
+          warnings = []
+          
+          # Check minimum stats count
+          if len(parsed_data) < 12:
+              warnings.append({
+                  'type': 'insufficient_stats',
+                  'message': 'Not enough stats values'
+              })
+          
+          # Validate agent data
+          if not self.validate_agent_data(parsed_data):
+              return False, ['Invalid agent data']
+          
+          # Validate numeric values
+          numeric_errors = self.validate_numeric_values(parsed_data)
+          warnings.extend(numeric_errors)
+          
+          # Check for unknown stats
+          unknown_stats = self.check_unknown_stats(parsed_data)
+          warnings.extend(unknown_stats)
+          
+          return True, warnings
+      
+      def validate_agent_data(self, data):
+          """Validate agent name, faction, date, time"""
+          required_indices = [1, 2, 3, 4]  # agent name, faction, date, time
+          return all(idx in data for idx in required_indices)
+      
+      def validate_numeric_values(self, data):
+          """Ensure numeric stats are valid numbers"""
+          errors = []
+          for idx, stat in data.items():
+              if stat.get('type') == 'N':
+                  try:
+                      int(stat['value'])
+                  except ValueError:
+                      errors.append({
+                          'type': 'invalid_numeric',
+                          'stat': stat['name'],
+                          'value': stat['value']
+                      })
+          return errors
+Phase 4: Telegram Bot Implementation (Week 3-4)
+Task 4.1: Set Up Bot Framework
+
+Subtask 4.1.1: Create bot instance and configuration
+
+python  # src/bot/bot.py
+  
+  from telegram import Update
+  from telegram.ext import Application, CommandHandler, MessageHandler, filters
+  import os
+  from dotenv import load_env
+  
+  load_dotenv()
+  
+  class IngressLeaderboardBot:
+      def __init__(self):
+          self.token = os.getenv('TELEGRAM_BOT_TOKEN')
+          self.app = Application.builder().token(self.token).build()
+          self.setup_handlers()
+      
+      def setup_handlers(self):
+          """Register all command and message handlers"""
+          self.app.add_handler(CommandHandler('start', self.start_command))
+          self.app.add_handler(CommandHandler('help', self.help_command))
+          self.app.add_handler(CommandHandler('submit', self.submit_command))
+          self.app.add_handler(CommandHandler('leaderboard', self.leaderboard_command))
+          self.app.add_handler(CommandHandler('mystats', self.mystats_command))
+          
+          # Handle text messages (for stats submission)
+          self.app.add_handler(
+              MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message)
+          )
+      
+      def run(self):
+          """Start the bot"""
+          self.app.run_polling()
+Task 4.2: Implement Bot Commands
+
+Subtask 4.2.1: Start and Help commands
+
+python  async def start_command(self, update: Update, context):
+      """Welcome message and instructions"""
+      welcome_text = """
+  Welcome to Ingress Prime Leaderboard Bot! 🎮
+  
+  I can help you track your Ingress stats and compete with other agents.
+  
+  Commands:
+  /submit - Submit your stats
+  /leaderboard - View leaderboards
+  /mystats - View your stats history
+  /help - Show this help message
+  
+  To submit stats:
+  1. Open Ingress Prime
+  2. Go to your Agent Profile
+  3. Tap on "ALL TIME" stats
+  4. Copy and paste them here
+      """
+      await update.message.reply_text(welcome_text)
+  
+  async def help_command(self, update: Update, context):
+      """Detailed help information"""
+      help_text = """
+  📊 How to use this bot:
+  
+  **Submitting Stats:**
+  Simply copy your ALL TIME stats from Ingress Prime and send them to me.
+  
+  **Viewing Leaderboards:**
+  Use /leaderboard to see rankings by different categories:
+  - AP (Access Points)
+  - Explorer (Unique Portals Visited)
+  - Recharger (XM Recharged)
+  - And many more!
+  
+  **Checking Your Stats:**
+  Use /mystats to see your submission history and progress.
+      """
+      await update.message.reply_text(help_text, parse_mode='Markdown')
+
+Subtask 4.2.2: Stats submission handler
+
+python  async def handle_message(self, update: Update, context):
+      """Handle text messages (potential stats submissions)"""
+      text = update.message.text
+      
+      # Check if it looks like stats
+      if not text.startswith('Time Span'):
+          await update.message.reply_text(
+              "This doesn't look like Ingress stats. "
+              "Please copy your ALL TIME stats from the game."
+          )
+          return
+      
+      # Show processing message
+      processing_msg = await update.message.reply_text(
+          "⏳ Processing your stats..."
+      )
+      
+      try:
+          # Parse stats
+          parser = StatsParser()
+          parsed_data = parser.parse(text)
+          
+          if 'error' in parsed_data:
+              await processing_msg.edit_text(
+                  f"❌ Error: {parsed_data['error']}"
+              )
+              return
+          
+          # Validate
+          validator = StatsValidator()
+          is_valid, warnings = validator.validate_parsed_stats(parsed_data)
+          
+          if not is_valid:
+              await processing_msg.edit_text(
+                  f"❌ Invalid stats: {warnings[0]}"
+              )
+              return
+          
+          # Save to database
+          user_id = update.message.from_user.id
+          db = Database()
+          submission_id = db.save_stats(user_id, parsed_data)
+          
+          # Send success message
+          agent_name = parsed_data[1]['value']
+          level = parsed_data[5]['value']
+          ap = parsed_data[6]['value']
+          
+          success_text = f"""
+  ✅ Stats submitted successfully!
+  
+  Agent: {agent_name}
+  Level: {level}
+  Lifetime AP: {ap:,}
+  """
+          
+          if warnings:
+              success_text += "\n⚠️ Warnings:\n"
+              for warning in warnings[:3]:  # Show first 3 warnings
+                  success_text += f"- {warning.get('message', 'Unknown warning')}\n"
+          
+          await processing_msg.edit_text(success_text)
+          
+      except Exception as e:
+          await processing_msg.edit_text(
+              f"❌ An error occurred: {str(e)}"
+          )
+          # Log error
+          logger.error(f"Error processing stats: {e}", exc_info=True)
+
+Subtask 4.2.3: Leaderboard command with inline keyboard
+
+python  from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+  
+  async def leaderboard_command(self, update: Update, context):
+      """Show leaderboard categories"""
+      keyboard = [
+          [
+              InlineKeyboardButton("🏆 AP", callback_data='lb_ap'),
+              InlineKeyboardButton("🔍 Explorer", callback_data='lb_explorer')
+          ],
+          [
+              InlineKeyboardButton("🔗 Connector", callback_data='lb_connector'),
+              InlineKeyboardButton("🧠 Mind Controller", callback_data='lb_mindcontroller')
+          ],
+          [
+              InlineKeyboardButton("⚡ Recharger", callback_data='lb_recharger'),
+              InlineKeyboardButton("🔨 Builder", callback_data='lb_builder')
+          ],
+          [
+              InlineKeyboardButton("📱 Hacker", callback_data='lb_hacker'),
+              InlineKeyboardButton("🚶 Trekker", callback_data='lb_trekker')
+          ],
+      ]
+      
+      reply_markup = InlineKeyboardMarkup(keyboard)
+      await update.message.reply_text(
+          '📊 Select a leaderboard category:',
+          reply_markup=reply_markup
+      )
+Task 4.3: Implement Callback Handlers
+
+Subtask 4.3.1: Handle leaderboard callbacks
+
+python  # src/bot/callbacks.py
+  
+  from telegram import Update
+  from telegram.ext import ContextTypes
+  
+  async def handle_leaderboard_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+      """Handle leaderboard selection callbacks"""
+      query = update.callback_query
+      await query.answer()
+      
+      # Extract stat type from callback data
+      stat_type = query.data.replace('lb_', '')
+      
+      # Mapping of callback data to stat indices
+      STAT_MAPPING = {
+          'ap': 6,  # Lifetime AP
+          'explorer': 8,  # Unique Portals Visited
+          'connector': 15,  # Links Created
+          'mindcontroller': 16,  # Control Fields Created
+          'recharger': 20,  # XM Recharged
+          'builder': 14,  # Resonators Deployed
+          'hacker': 34,  # Hacks
+          'trekker': 13,  # Distance Walked
+      }
+      
+      stat_idx = STAT_MAPPING.get(stat_type)
+      if not stat_idx:
+          await query.edit_message_text("Invalid category")
+          return
+      
+      # Generate leaderboard
+      lb_generator = LeaderboardGenerator()
+      leaderboard = lb_generator.generate(stat_idx, limit=20)
+      
+      # Format and send
+      formatter = LeaderboardFormatter()
+      formatted_text = formatter.format_leaderboard(leaderboard, stat_type)
+      
+      await query.edit_message_text(
+          formatted_text,
+          parse_mode='HTML'
+      )
+Phase 5: Leaderboard Generation (Week 4-5)
+Task 5.1: Create Leaderboard Generator
+
+Subtask 5.1.1: Implement leaderboard queries
+
+python  # src/leaderboard/generator.py
+  
+  class LeaderboardGenerator:
+      def __init__(self, db_connection):
+          self.db = db_connection
+      
+      def generate(self, stat_idx, limit=20, faction=None, period='all_time'):
+          """Generate leaderboard for a specific stat"""
+          query = """
+          WITH latest_submissions AS (
+              SELECT DISTINCT ON (agent_id) 
+                  agent_id,
+                  id as submission_id,
+                  submission_date
+              FROM stats_submissions
+              WHERE stats_type = 'ALL TIME'
+              ORDER BY agent_id, submission_date DESC, created_at DESC
+          )
+          SELECT 
+              a.agent_name,
+              a.faction,
+              ast.stat_value,
+              ss.submission_date
+          FROM latest_submissions ls
+          JOIN agents a ON a.id = ls.agent_id
+          JOIN stats_submissions ss ON ss.id = ls.submission_id
+          JOIN agent_stats ast ON ast.submission_id = ss.id
+          WHERE ast.stat_idx = %s
+          """
+          
+          if faction:
+              query += " AND a.faction = %s"
+          
+          query += """
+          ORDER BY ast.stat_value DESC
+          LIMIT %s
+          """
+          
+          params = [stat_idx]
+          if faction:
+              params.append(faction)
+          params.append(limit)
+          
+          results = self.db.execute(query, params)
+          
+          return [
+              {
+                  'rank': idx + 1,
+                  'agent_name': row[0],
+                  'faction': row[1],
+                  'value': row[2],
+                  'date': row[3]
+              }
+              for idx, row in enumerate(results)
+          ]
+      
+      def generate_monthly(self, stat_idx, year, month, limit=20):
+          """Generate leaderboard for specific month"""
+          # Similar logic but filtering by month
+          pass
+      
+      def generate_progress(self, stat_idx, days=30, limit=20):
+          """Generate leaderboard based on progress over period"""
+          query = """
+          WITH recent_stats AS (
+              SELECT 
+                  agent_id,
+                  stat_value,
+                  submission_date,
+                  ROW_NUMBER() OVER (
+                      PARTITION BY agent_id 
+                      ORDER BY submission_date DESC
+                  ) as rn
+              FROM stats_submissions ss
+              JOIN agent_stats ast ON ast.submission_id = ss.id
+              WHERE 
+                  ast.stat_idx = %s
+                  AND submission_date >= CURRENT_DATE - INTERVAL '%s days'
+          ),
+          first_last AS (
+              SELECT 
+                  agent_id,
+                  MAX(CASE WHEN rn = 1 THEN stat_value END) as latest_value,
+                  MIN(stat_value) as earliest_value
+              FROM recent_stats
+              GROUP BY agent_id
+          )
+          SELECT 
+              a.agent_name,
+              a.faction,
+              fl.latest_value - fl.earliest_value as progress
+          FROM first_last fl
+          JOIN agents a ON a.id = fl.agent_id
+          WHERE fl.latest_value > fl.earliest_value
+          ORDER BY progress DESC
+          LIMIT %s
+          """
+          
+          results = self.db.execute(query, [stat_idx, days, limit])
+          return results
+Task 5.2: Create Leaderboard Formatters
+
+Subtask 5.2.1: Format leaderboard output
+
+python  # src/leaderboard/formatters.py
+  
+  class LeaderboardFormatter:
+      def format_leaderboard(self, leaderboard_data, category_name):
+          """Format leaderboard for Telegram display"""
+          
+          # Get stat definition for formatting
+          stat_def = self.get_stat_definition(category_name)
+          
+          text = f"🏆 <b>{stat_def['name']} Leaderboard</b>\n"
+          text += f"{'═' * 40}\n\n"
+          
+          for entry in leaderboard_data:
+              rank = entry['rank']
+              agent = entry['agent_name']
+              faction = '💚' if entry['faction'] == 'Enlightened' else '💙'
+              value = self.format_value(entry['value'], stat_def)
+              
+              # Medal emoji for top 3
+              if rank == 1:
+                  medal = '🥇'
+              elif rank == 2:
+                  medal = '🥈'
+              elif rank == 3:
+                  medal = '🥉'
+              else:
+                  medal = f"{rank}."
+              
+              text += f"{medal} {faction} <b>{agent}</b>\n"
+              text += f"    {value}\n\n"
+          
+          text += f"\n<i>Updated: {datetime.now().strftime('%Y-%m-%d %H:%M')}</i>"
+          
+          return text
+      
+      def format_value(self, value, stat_def):
+          """Format stat value with appropriate units"""
+          value = int(value)
+          
+          # Distance (km)
+          if stat_def['idx'] == 13:  # Trekker
+              return f"{value:,} km"
+          
+          # XM amounts
+          if stat_def['idx'] in [11, 20]:  # XM Collected, Recharged
+              return f"{value:,} XM"
+          
+          # Large numbers with formatting
+          if value >= 1000000:
+              return f"{value/1000000:.1f}M"
+          elif value >= 1000:
+              return f"{value/1000:.1f}K"
+          
+          return f"{value:,}"
+      
+      def format_badge_level(self, value, stat_def):
+          """Show badge level achieved"""
+          if 'badges' not in stat_def:
+              return ""
+          
+          badge_levels = stat_def['badges']['levels']
+          level_names = ['Bronze', 'Silver', 'Gold', 'Platinum', 'Onyx']
+          
+          for i in range(len(badge_levels) - 1, -1, -1):
+              if value >= badge_levels[i]:
+                  return f"({level_names[i]})"
+          
+          return "(None)"
+Phase 6: Database Operations (Week 5)
+Task 6.1: Implement Database Layer
+
+Subtask 6.1.1: Create database connection manager
+
+python  # src/database/connection.py
+  
+  import psycopg2
+  from psycopg2.pool import SimpleConnectionPool
+  import os
+  
+  class DatabaseConnection:
+      def __init__(self):
+          self.pool = SimpleConnectionPool(
+              1, 20,  # min and max connections
+              host=os.getenv('DB_HOST'),
+              database=os.getenv('DB_NAME'),
+              user=os.getenv('DB_USER'),
+              password=os.getenv('DB_PASSWORD')
+          )
+      
+      def get_connection(self):
+          return self.pool.getconn()
+      
+      def return_connection(self, conn):
+          self.pool.putconn(conn)
+      
+      def execute_query(self, query, params=None):
+          conn = self.get_connection()
+          try:
+              with conn.cursor() as cursor:
+                  cursor.execute(query, params)
+                  conn.commit()
+                  return cursor.fetchall()
+          finally:
+              self.return_connection(conn)
+
+Subtask 6.1.2: Create data access layer
+
+python  # src/database/queries.py
+  
+  class StatsDatabase:
+      def __init__(self, db_connection):
+          self.db = db_connection
+      
+      def save_stats(self, telegram_user_id, parsed_stats):
+          """Save parsed stats to database"""
+          conn = self.db.get_connection()
+          try:
+              with conn.cursor() as cursor:
+                  # Get or create user
+                  user_id = self.get_or_create_user(cursor, telegram_user_id)
+                  
+                  # Get or create agent
+                  agent_name = parsed_stats[1]['value']
+                  faction = parsed_stats[2]['value']
+                  agent_id = self.get_or_create_agent(
+                      cursor, user_id, agent_name, faction
+                  )
+                  
+                  # Create stats submission
+                  submission_date = parsed_stats[3]['value']
+                  submission_time = parsed_stats[4]['value']
+                  level = parsed_stats[5]['value']
+                  lifetime_ap = parsed_stats[6]['value']
+                  current_ap = parsed_stats[7]['value']
+                  
+                  cursor.execute("""
+                      INSERT INTO stats_submissions 
+                      (agent_id, submission_date, submission_time, 
+                       level, lifetime_ap, current_ap)
+                      VALUES (%s, %s, %s, %s, %s, %s)
+                      ON CONFLICT (agent_id, submission_date, stats_type)
+                      DO UPDATE SET
+                          submission_time = EXCLUDED.submission_time,
+                          level = EXCLUDED.level,
+                          lifetime_ap = EXCLUDED.lifetime_ap,
+                          current_ap = EXCLUDED.current_ap
+                      RETURNING id
+                  """, (agent_id, submission_date, submission_time,
+                        level, lifetime_ap, current_ap))
+                  
+                  submission_id = cursor.fetchone()[0]
+                  
+                  # Delete old individual stats for this submission
+                  cursor.execute(
+                      "DELETE FROM agent_stats WHERE submission_id = %s",
+                      (submission_id,)
+                  )
+                  
+                  # Insert all individual stats
+                  stats_values = []
+                  forHContinueidx, stat_data in parsed_stats.items():
+if isinstance(idx, int) and idx > 4:  # Skip header stats
+stats_values.append((
+submission_id,
+idx,
+stat_data['name'],
+stat_data['value']
+))
+              cursor.executemany("""
+                  INSERT INTO agent_stats 
+                  (submission_id, stat_idx, stat_name, stat_value)
+                  VALUES (%s, %s, %s, %s)
+              """, stats_values)
+              
+              conn.commit()
+              return submission_id
+              
+      except Exception as e:
+          conn.rollback()
+          raise e
+      finally:
+          self.db.return_connection(conn)
+  
+  def get_or_create_user(self, cursor, telegram_id):
+      """Get existing user or create new one"""
+      cursor.execute(
+          "SELECT id FROM users WHERE telegram_id = %s",
+          (telegram_id,)
+      )
+      result = cursor.fetchone()
+      
+      if result:
+          return result[0]
+      
+      cursor.execute(
+          "INSERT INTO users (telegram_id) VALUES (%s) RETURNING id",
+          (telegram_id,)
+      )
+      return cursor.fetchone()[0]
+  
+  def get_or_create_agent(self, cursor, user_id, agent_name, faction):
+      """Get existing agent or create new one"""
+      cursor.execute(
+          "SELECT id FROM agents WHERE agent_name = %s",
+          (agent_name,)
+      )
+      result = cursor.fetchone()
+      
+      if result:
+          # Update user_id if different (agent changed Telegram account)
+          cursor.execute(
+              "UPDATE agents SET user_id = %s WHERE id = %s",
+              (user_id, result[0])
+          )
+          return result[0]
+      
+      cursor.execute("""
+          INSERT INTO agents (user_id, agent_name, faction)
+          VALUES (%s, %s, %s)
+          RETURNING id
+      """, (user_id, agent_name, faction))
+      return cursor.fetchone()[0]
+  
+  def get_agent_history(self, agent_name, stat_idx=None):
+      """Get submission history for an agent"""
+      query = """
+      SELECT 
+          ss.submission_date,
+          ss.level,
+          ss.lifetime_ap,
+          ast.stat_name,
+          ast.stat_value
+      FROM agents a
+      JOIN stats_submissions ss ON ss.agent_id = a.id
+      LEFT JOIN agent_stats ast ON ast.submission_id = ss.id
+      WHERE a.agent_name = %s
+      """
+      
+      params = [agent_name]
+      
+      if stat_idx:
+          query += " AND ast.stat_idx = %s"
+          params.append(stat_idx)
+      
+      query += " ORDER BY ss.submission_date DESC"
+      
+      return self.db.execute_query(query, params)
+
+### Phase 7: Additional Features (Week 6)
+
+#### Task 7.1: Progress Tracking
+
+- **Subtask 7.1.1**: Implement progress comparison
+```python
+  # src/features/progress.py
+  
+  class ProgressTracker:
+      def calculate_progress(self, agent_name, days=30):
+          """Calculate progress over specified days"""
+          query = """
+          WITH ranked_submissions AS (
+              SELECT 
+                  ast.stat_idx,
+                  ast.stat_name,
+                  ast.stat_value,
+                  ss.submission_date,
+                  ROW_NUMBER() OVER (
+                      PARTITION BY ast.stat_idx 
+                      ORDER BY ss.submission_date DESC
+                  ) as rn
+              FROM agents a
+              JOIN stats_submissions ss ON ss.agent_id = a.id
+              JOIN agent_stats ast ON ast.submission_id = ss.id
+              WHERE 
+                  a.agent_name = %s
+                  AND ss.submission_date >= CURRENT_DATE - INTERVAL '%s days'
+          )
+          SELECT 
+              stat_idx,
+              stat_name,
+              MAX(CASE WHEN rn = 1 THEN stat_value END) as latest,
+              MIN(stat_value) as earliest,
+              MAX(CASE WHEN rn = 1 THEN stat_value END) - MIN(stat_value) as gain
+          FROM ranked_submissions
+          GROUP BY stat_idx, stat_name
+          HAVING MAX(CASE WHEN rn = 1 THEN stat_value END) > MIN(stat_value)
+          ORDER BY gain DESC
+          """
+          
+          results = self.db.execute_query(query, [agent_name, days])
+          return results
+      
+      def format_progress_report(self, progress_data, agent_name, days):
+          """Format progress into readable message"""
+          text = f"📈 <b>Progress Report for {agent_name}</b>\n"
+          text += f"Last {days} days\n"
+          text += f"{'═' * 40}\n\n"
+          
+          for stat in progress_data[:10]:  # Top 10 improvements
+              stat_name = stat[1]
+              gain = stat[4]
+              text += f"<b>{stat_name}</b>\n"
+              text += f"  +{gain:,}\n\n"
+          
+          return text
+```
+
+#### Task 7.2: Personal Stats Command
+
+- **Subtask 7.2.1**: Implement /mystats command
+```python
+  async def mystats_command(self, update: Update, context):
+      """Show user's stats and history"""
+      user_id = update.message.from_user.id
+      
+      # Get user's agent
+      db = StatsDatabase()
+      agent = db.get_agent_by_telegram_id(user_id)
+      
+      if not agent:
+          await update.message.reply_text(
+              "You haven't submitted any stats yet. "
+              "Send me your ALL TIME stats to get started!"
+          )
+          return
+      
+      # Get latest submission
+      latest = db.get_latest_submission(agent['id'])
+      
+      # Get progress
+      progress = ProgressTracker().calculate_progress(
+          agent['agent_name'], 
+          days=30
+      )
+      
+      # Format response
+      text = f"👤 <b>Your Stats</b>\n\n"
+      text += f"Agent: <b>{agent['agent_name']}</b>\n"
+      text += f"Faction: {agent['faction']}\n"
+      text += f"Level: {latest['level']}\n"
+      text += f"AP: {latest['lifetime_ap']:,}\n\n"
+      
+      text += f"📊 Top Improvements (30 days):\n"
+      for stat in progress[:5]:
+          text += f"• {stat[1]}: +{stat[4]:,}\n"
+      
+      await update.message.reply_text(text, parse_mode='HTML')
+```
+
+#### Task 7.3: Faction Leaderboards
+
+- **Subtask 7.3.1**: Add faction filter to leaderboards
+```python
+  async def faction_leaderboard_command(self, update: Update, context):
+      """Show faction-specific leaderboards"""
+      keyboard = [
+          [
+              InlineKeyboardButton(
+                  "💚 Enlightened", 
+                  callback_data='faction_enl'
+              ),
+              InlineKeyboardButton(
+                  "💙 Resistance", 
+                  callback_data='faction_res'
+              )
+          ],
+          [
+              InlineKeyboardButton(
+                  "🌐 All Factions", 
+                  callback_data='faction_all'
+              )
+          ]
+      ]
+      
+      reply_markup = InlineKeyboardMarkup(keyboard)
+      await update.message.reply_text(
+          'Select faction:',
+          reply_markup=reply_markup
+      )
+```
+
+### Phase 8: Testing & Quality Assurance (Week 6-7)
+
+#### Task 8.1: Unit Testing
+
+- **Subtask 8.1.1**: Test stats parser
+```python
+  # tests/test_stats_parser.py
+  
+  import unittest
+  from src.parsers.stats_parser import StatsParser
+  
+  class TestStatsParser(unittest.TestCase):
+      def setUp(self):
+          self.parser = StatsParser()
+      
+      def test_telegram_format_parsing(self):
+          """Test parsing of Telegram format stats"""
+          sample_stats = """Time Span Agent Name Agent Faction Date (yyyy-mm-dd) Time (hh:mm:ss) Level Lifetime AP Current AP
+  ALL TIME TestAgent Enlightened 2024-01-15 10:30:00 16 50000000 45000000"""
+          
+          result = self.parser.parse(sample_stats)
+          
+          self.assertNotIn('error', result)
+          self.assertEqual(result[1]['value'], 'TestAgent')
+          self.assertEqual(result[2]['value'], 'Enlightened')
+      
+      def test_tabulated_format_parsing(self):
+          """Test parsing of tab-separated stats"""
+          sample_stats = "Time Span\tAgent Name\tAgent Faction\nALL TIME\tTestAgent\tResistance"
+          
+          result = self.parser.parse(sample_stats)
+          
+          self.assertNotIn('error', result)
+          self.assertEqual(result[2]['value'], 'Resistance')
+      
+      def test_invalid_stats_format(self):
+          """Test handling of invalid input"""
+          invalid_stats = "This is not valid stats data"
+          
+          result = self.parser.parse(invalid_stats)
+          
+          self.assertIn('error', result)
+          self.assertEqual(result['error_code'], 1)
+      
+      def test_non_alltime_stats(self):
+          """Test rejection of non-ALL TIME stats"""
+          monthly_stats = """Time Span Agent Name Agent Faction Date (yyyy-mm-dd) Time (hh:mm:ss)
+  MONTH TestAgent Enlightened 2024-01-15 10:30:00"""
+          
+          result = self.parser.parse(monthly_stats)
+          
+          self.assertIn('error', result)
+          self.assertEqual(result['error_code'], 3)
+```
+
+- **Subtask 8.1.2**: Test database operations
+```python
+  # tests/test_database.py
+  
+  import unittest
+  from src.database.queries import StatsDatabase
+  
+  class TestDatabase(unittest.TestCase):
+      def setUp(self):
+          # Set up test database connection
+          self.db = StatsDatabase(test_connection)
+      
+      def test_save_and_retrieve_stats(self):
+          """Test saving and retrieving stats"""
+          # Create sample parsed stats
+          parsed_stats = {...}
+          
+          # Save
+          submission_id = self.db.save_stats(12345, parsed_stats)
+          
+          # Retrieve
+          stats = self.db.get_submission(submission_id)
+          
+          self.assertIsNotNone(stats)
+          self.assertEqual(stats['agent_name'], 'TestAgent')
+      
+      def test_duplicate_submission_handling(self):
+          """Test that duplicate submissions are updated"""
+          parsed_stats = {...}
+          
+          # Submit twice
+          id1 = self.db.save_stats(12345, parsed_stats)
+          id2 = self.db.save_stats(12345, parsed_stats)
+          
+          # Should return same ID or update existing
+          self.assertEqual(id1, id2)
+```
+
+#### Task 8.2: Integration Testing
+
+- **Subtask 8.2.1**: Test bot commands
+```python
+  # tests/test_bot.py
+  
+  import unittest
+  from unittest.mock import Mock, patch
+  from src.bot.bot import IngressLeaderboardBot
+  
+  class TestBotCommands(unittest.TestCase):
+      def setUp(self):
+          self.bot = IngressLeaderboardBot()
+      
+      @patch('src.bot.bot.Database')
+      async def test_start_command(self, mock_db):
+          """Test /start command"""
+          update = Mock()
+          context = Mock()
+          
+          await self.bot.start_command(update, context)
+          
+          update.message.reply_text.assert_called_once()
+      
+      @patch('src.parsers.stats_parser.StatsParser')
+      async def test_stats_submission(self, mock_parser):
+          """Test stats submission flow"""
+          # Mock the parser to return valid stats
+          mock_parser.return_value.parse.return_value = {...}
+          
+          update = Mock()
+          update.message.text = "Time Span Agent Name..."
+          
+          await self.bot.handle_message(update, None)
+          
+          # Verify success message was sent
+          self.assertTrue(update.message.reply_text.called)
+```
+
+### Phase 9: Deployment (Week 7)
+
+#### Task 9.1: Prepare for Production
+
+- **Subtask 9.1.1**: Create production configuration
+```python
+  # src/config/settings.py
+  
+  import os
+  from dotenv import load_dotenv
+  
+  load_dotenv()
+  
+  class Settings:
+      # Bot configuration
+      BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
+      
+      # Database configuration
+      DB_HOST = os.getenv('DB_HOST', 'localhost')
+      DB_NAME = os.getenv('DB_NAME', 'ingress_leaderboard')
+      DB_USER = os.getenv('DB_USER', 'postgres')
+      DB_PASSWORD = os.getenv('DB_PASSWORD')
+      DB_PORT = os.getenv('DB_PORT', '5432')
+      
+      # Application settings
+      MAX_LEADERBOARD_SIZE = int(os.getenv('MAX_LEADERBOARD_SIZE', '50'))
+      CACHE_TIMEOUT = int(os.getenv('CACHE_TIMEOUT', '300'))  # 5 minutes
+      
+      # Logging
+      LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
+```
+
+- **Subtask 9.1.2**: Set up logging
+```python
+  # src/utils/logger.py
+  
+  import logging
+  import sys
+  from src.config.settings import Settings
+  
+  def setup_logger():
+      """Configure application logging"""
+      logging.basicConfig(
+          level=getattr(logging, Settings.LOG_LEVEL),
+          format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+          handlers=[
+              logging.FileHandler('bot.log'),
+              logging.StreamHandler(sys.stdout)
+          ]
+      )
+      
+      return logging.getLogger('IngressLeaderboardBot')
+```
+
+- **Subtask 9.1.3**: Create Dockerfile
+```dockerfile
+  # Dockerfile
+  
+  FROM python:3.11-slim
+  
+  WORKDIR /app
+  
+  # Install dependencies
+  COPY requirements.txt .
+  RUN pip install --no-cache-dir -r requirements.txt
+  
+  # Copy application code
+  COPY . .
+  
+  # Run the bot
+  CMD ["python", "main.py"]
+```
+
+- **Subtask 9.1.4**: Create docker-compose for local development
+```yaml
+  # docker-compose.yml
+  
+  version: '3.8'
+  
+  services:
+    bot:
+      build: .
+      env_file: .env
+      depends_on:
+        - db
+      restart: unless-stopped
+    
+    db:
+      image: postgres:15
+      environment:
+        POSTGRES_DB: ingress_leaderboard
+        POSTGRES_USER: postgres
+        POSTGRES_PASSWORD: ${DB_PASSWORD}
+      volumes:
+        - postgres_data:/var/lib/postgresql/data
+      ports:
+        - "5432:5432"
+  
+  volumes:
+    postgres_data:
+```
+
+#### Task 9.2: Deploy to Production
+
+- **Subtask 9.2.1**: Deploy to Railway/Heroku
+```bash
+  # For Railway
+  railway login
+  railway init
+  railway add
+  railway up
+  
+  # For Heroku
+  heroku login
+  heroku create ingress-leaderboard-bot
+  heroku addons:create heroku-postgresql:mini
+  git push heroku main
+```
+
+- **Subtask 9.2.2**: Set up environment variables
+```bash
+  # Railway/Heroku
+  railway variables set TELEGRAM_BOT_TOKEN=your_token_here
+  railway variables set DB_PASSWORD=your_db_password
+  
+  # Or use the web dashboard
+```
+
+- **Subtask 9.2.3**: Initialize database schema
+```python
+  # scripts/init_db.py
+  
+  from src.database.connection import DatabaseConnection
+  
+  def init_database():
+      """Initialize database tables"""
+      db = DatabaseConnection()
+      
+      with open('schema.sql', 'r') as f:
+          schema = f.read()
+      
+      db.execute_query(schema)
+      print("Database initialized successfully")
+  
+  if __name__ == '__main__':
+      init_database()
+```
+
+### Phase 10: Documentation & Maintenance (Ongoing)
+
+#### Task 10.1: Create Documentation
+
+- **Subtask 10.1.1**: Write README.md
+```markdown
+  # Ingress Prime Leaderboard Bot
+  
+  A Telegram bot for tracking and comparing Ingress Prime player statistics.
+  
+  ## Features
+  - Submit and track your Ingress stats
+  - View leaderboards by various categories
+  - Track progress over time
+  - Compare with other agents
+  
+  ## Setup
+  1. Clone the repository
+  2. Install dependencies: `pip install -r requirements.txt`
+  3. Set up environment variables (see `.env.example`)
+  4. Run database migrations
+  5. Start the bot: `python main.py`
+  
+  ## Usage
+  Send your ALL TIME stats from Ingress Prime to the bot.
+  
+  ## Commands
+  - `/start` - Get started
+  - `/help` - Show help
+  - `/submit` - Submit stats
+  - `/leaderboard` - View leaderboards
+  - `/mystats` - View your stats
+  
+  ## Development
+  Run tests: `python -m pytest tests/`
+```
+
+- **Subtask 10.1.2**: Create API documentation
+```markdown
+  # API Documentation
+  
+  ## Stats Parser
+  
+  ### parse(stats_text: str) -> dict
+  Parses Ingress stats text and returns structured data.
+  
+  **Parameters:**
+  - stats_text: Raw stats text from Ingress
+  
+  **Returns:**
+  Dictionary containing parsed stats or error information
+  
+  ## Database
+  
+  ### save_stats(telegram_user_id: int, parsed_stats: dict) -> int
+  Saves parsed stats to database.
+  
+  **Parameters:**
+  - telegram_user_id: Telegram user ID
+  - parsed_stats: Parsed stats dictionary
+  
+  **Returns:**
+  Submission ID
+```
+
+#### Task 10.2: Monitoring & Maintenance
+
+- **Subtask 10.2.1**: Set up error tracking
+```python
+  # src/utils/error_handler.py
+  
+  import logging
+  from functools import wraps
+  
+  logger = logging.getLogger(__name__)
+  
+  def handle_errors(func):
+      """Decorator for error handling"""
+      @wraps(func)
+      async def wrapper(*args, **kwargs):
+          try:
+              return await func(*args, **kwargs)
+          except Exception as e:
+              logger.error(f"Error in {func.__name__}: {e}", exc_info=True)
+              # Optionally send to error tracking service (Sentry, etc.)
+              raise
+      return wrapper
+```
+
+- **Subtask 10.2.2**: Add health check endpoint
+```python
+  # src/utils/health.py
+  
+  from flask import Flask, jsonify
+  import threading
+  
+  app = Flask(__name__)
+  
+  @app.route('/health')
+  def health_check():
+      """Health check endpoint for monitoring"""
+      return jsonify({
+          'status': 'healthy',
+          'bot': 'running'
+      })
+  
+  def run_health_server():
+      """Run health check server in separate thread"""
+      app.run(host='0.0.0.0', port=8080)
+  
+  # Start in bot main file
+  health_thread = threading.Thread(target=run_health_server)
+  health_thread.daemon = True
+  health_thread.start()
+```
+
+## Project Timeline Summary
+
+- **Week 1**: Setup, configuration, data modeling
+- **Week 2-3**: Stats parser implementation
+- **Week 3-4**: Bot implementation
+- **Week 4-5**: Leaderboard generation
+- **Week 5**: Database operations
+- **Week 6**: Additional features
+- **Week 6-7**: Testing
+- **Week 7**: Deployment
+- **Ongoing**: Documentation and maintenance
+
+## Key Recommendations
+
+1. **Start with Python** - Better for data processing and has excellent Telegram libraries
+2. **Use PostgreSQL** - Better for complex queries needed for leaderboards
+3. **Implement caching** - Leaderboard queries can be expensive
+4. **Add rate limiting** - Prevent spam submissions
+5. **Validate faction changes** - Alert if an agent changes faction
+6. **Back up regularly** - Player stats are valuable data
+7. **Monitor for new stats** - Niantic adds new stats periodically
+8. **Handle timezone properly** - Users submit from different timezones
+
+This roadmap provides a complete path from setup to deployment. Start with Phase 1 and work through systematically. Each task is broken down into actionable subtasks with code examples.

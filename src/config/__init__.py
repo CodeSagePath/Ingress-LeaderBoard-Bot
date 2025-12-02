@@ -1,0 +1,1 @@
+"""Configuration package for settings and stats definitions."""
