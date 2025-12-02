@@ -9,7 +9,7 @@ import logging
 from typing import Dict, List, Tuple, Any
 from datetime import datetime, date, time
 
-from config.stats_config import get_stat_by_idx, get_badge_level
+from ..config.stats_config import get_stat_by_idx, get_badge_level
 from .business_rules_validator import BusinessRulesValidator
 
 

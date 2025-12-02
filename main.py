@@ -7,6 +7,7 @@ and manages the application lifecycle.
 
 import asyncio
 import logging
+import os
 import signal
 import sys
 from typing import Optional
@@ -218,8 +219,49 @@ async def run_bot(env_file: Optional[str] = None) -> None:
         await bot.stop()
 
 
+def main_simple() -> None:
+    """Main entry point for simplified framework mode."""
+    # Set up logging first
+    try:
+        settings = get_settings()
+        setup_logger(
+            level=settings.logging.level,
+            log_file=settings.logging.log_file,
+            max_file_size_mb=settings.logging.max_file_size_mb,
+            backup_count=settings.logging.backup_count
+        )
+    except Exception as e:
+        print(f"Failed to set up logging: {e}")
+        print("Continuing with default logging...")
+        logging.basicConfig(level=logging.INFO)
+
+    # Print startup information
+    print("Ingress Prime Leaderboard Bot (Simple Framework Mode)")
+    print(f"Python-telegram-bot version: {telegram_version}")
+    print("=" * 50)
+
+    # Run the simple bot
+    try:
+        # Import here to avoid circular imports
+        from src.bot.bot_framework import IngressLeaderboardBot as SimpleBot
+
+        bot = SimpleBot()
+        asyncio.run(bot.run())
+    except KeyboardInterrupt:
+        print("\nBot stopped by user")
+    except Exception as e:
+        print(f"Bot failed to start: {e}")
+        sys.exit(1)
+
+
 def main() -> None:
     """Main entry point for the application."""
+    # Check which mode to use
+    simple_mode = os.getenv('SIMPLE_FRAMEWORK', 'false').lower() == 'true'
+
+    if simple_mode:
+        return main_simple()
+
     # Set up logging first
     try:
         settings = get_settings()

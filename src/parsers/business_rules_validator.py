@@ -9,7 +9,7 @@ import logging
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime, date
 
-from config.stats_config import get_stat_by_idx
+from ..config.stats_config import get_stat_by_idx
 
 logger = logging.getLogger(__name__)
 

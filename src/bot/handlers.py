@@ -9,7 +9,8 @@ from typing import Dict, Optional, List, Any
 from datetime import datetime, timedelta
 from contextlib import contextmanager
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ParseMode
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.constants import ParseMode
 from telegram.ext import ContextTypes, CallbackQueryHandler, CommandHandler, MessageHandler, filters
 from telegram.error import TelegramError
 
@@ -31,6 +32,19 @@ class BotHandlers:
     def __init__(self):
         self.parser = StatsParser()
         self.validator = StatsValidator()
+
+        # Mapping of callback data to stat indices for leaderboard categories
+        # This matches the task requirements for stat identification
+        self.STAT_MAPPING = {
+            'ap': 6,           # Lifetime AP
+            'explorer': 8,     # Unique Portals Visited
+            'connector': 15,    # Links Created
+            'mindcontroller': 16, # Control Fields Created
+            'recharger': 20,    # XM Recharged
+            'builder': 14,       # Resonators Deployed
+            'hacker': 28,        # Hacks
+            'trekker': 13,        # Distance Walked
+        }
 
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """
@@ -387,7 +401,19 @@ Select a category to view the leaderboard:
         try:
             if callback_data.startswith('lb_'):
                 # Individual stat leaderboard
-                stat_idx = int(callback_data.replace('lb_', ''))
+                stat_type = callback_data.replace('lb_', '')
+
+                # Try to parse as integer first, then use STAT_MAPPING
+                try:
+                    stat_idx = int(stat_type)
+                except ValueError:
+                    # Use STAT_MAPPING for descriptive names
+                    stat_idx = self.STAT_MAPPING.get(stat_type.lower())
+                    if stat_idx is None:
+                        logger.warning(f"Unknown stat type in callback: {callback_data}")
+                        await query.edit_message_text("❌ Invalid stat category.")
+                        return
+
                 await self._show_stat_leaderboard(query, stat_idx, db_connection)
 
             elif callback_data.startswith('faction_'):
@@ -786,7 +812,73 @@ def register_handlers(application) -> None:
         MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.handle_message)
     )
 
-    # Callback query handlers
+    # Enhanced callback query handlers with STAT_MAPPING support
+    # The existing handler now supports both numeric and descriptive callback data
+    application.add_handler(CallbackQueryHandler(
+        handlers.handle_leaderboard_callback,
+        pattern='^(lb_|faction_)'
+    ))
+
+    logger.info("Bot handlers registered successfully with enhanced STAT_MAPPING support")
+
+
+async def submit_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /submit command - provide stats submission help."""
+    submit_text = """
+📊 <b>Stats Submission Help</b>
+
+To submit your Ingress Prime stats:
+
+1. Open Ingress Prime on your device
+2. Go to your Agent Profile
+3. Tap on "ALL TIME" stats
+4. Copy the entire stats text (starts with "Time Span")
+5. Paste it directly in this chat
+
+<b>Requirements:</b>
+• Only ALL TIME stats are accepted
+• Text must start with "Time Span"
+• Include all stats lines
+• Agent name must match exactly
+
+<b>Pro Tips:</b>
+• Submit regularly for accurate leaderboards
+• Check your progress with /mystats
+• View leaderboards with /leaderboard
+
+Ready? Just paste your stats here!
+    """
+
+    await update.message.reply_text(
+        submit_text,
+        parse_mode=ParseMode.HTML,
+        disable_web_page_preview=True
+    )
+
+
+def register_simple_handlers(application) -> None:
+    """
+    Register handlers for the simplified framework interface.
+
+    This function provides the simplified handler registration that matches
+    the user's requested framework structure while using the existing
+    robust BotHandlers implementation.
+    """
+    handlers = BotHandlers()
+
+    # Command handlers matching the simplified framework structure
+    application.add_handler(CommandHandler("start", handlers.start_command))
+    application.add_handler(CommandHandler("help", handlers.help_command))
+    application.add_handler(CommandHandler("submit", submit_command))
+    application.add_handler(CommandHandler("leaderboard", handlers.leaderboard_command))
+    application.add_handler(CommandHandler("mystats", handlers.mystats_command))
+
+    # Handle text messages (for stats submission)
+    application.add_handler(
+        MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.handle_message)
+    )
+
+    # Callback query handlers for interactive leaderboards
     application.add_handler(CallbackQueryHandler(handlers.handle_leaderboard_callback, pattern='^(lb_|faction_)'))
 
-    logger.info("Bot handlers registered successfully")
+    logger.info("Simple framework handlers registered successfully")

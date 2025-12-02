@@ -6,7 +6,7 @@ and individual stat records.
 """
 
 from datetime import datetime, date, time
-from typing import Optional
+from typing import Optional, List, Dict
 
 from sqlalchemy import (
     Column, Integer, BigInteger, String, DateTime, Date,

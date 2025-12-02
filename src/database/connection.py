@@ -41,7 +41,12 @@ class DatabaseConnection:
     def _build_database_url(self) -> str:
         """Build database URL from environment variables."""
         try:
-            # Get configuration from environment
+            # Check if full DATABASE_URL is provided first
+            database_url = os.getenv('DATABASE_URL')
+            if database_url:
+                return database_url
+
+            # Get configuration from environment (PostgreSQL fallback)
             db_host = os.getenv('DB_HOST', 'localhost')
             db_port = os.getenv('DB_PORT', '5432')
             db_name = os.getenv('DB_NAME', 'ingress_leaderboard')
@@ -49,7 +54,7 @@ class DatabaseConnection:
             db_password = os.getenv('DB_PASSWORD')
 
             if not db_password:
-                raise ValueError("DB_PASSWORD environment variable is required")
+                raise ValueError("DB_PASSWORD environment variable is required for PostgreSQL connection")
 
             return f"postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
 
@@ -79,16 +84,19 @@ class DatabaseConnection:
             # Create session factory
             self.session_factory = sessionmaker(bind=self.engine)
 
-            # Create raw connection pool for direct SQL when needed
-            self.connection_pool = SimpleConnectionPool(
-                minconn=1,
-                maxconn=pool_size,
-                host=os.getenv('DB_HOST', 'localhost'),
-                database=os.getenv('DB_NAME', 'ingress_leaderboard'),
-                user=os.getenv('DB_USER', 'postgres'),
-                password=os.getenv('DB_PASSWORD'),
-                port=os.getenv('DB_PORT', '5432')
-            )
+            # Create raw connection pool only for PostgreSQL (for direct SQL when needed)
+            if self.database_url.startswith('postgresql://'):
+                self.connection_pool = SimpleConnectionPool(
+                    minconn=1,
+                    maxconn=pool_size,
+                    host=os.getenv('DB_HOST', 'localhost'),
+                    database=os.getenv('DB_NAME', 'ingress_leaderboard'),
+                    user=os.getenv('DB_USER', 'postgres'),
+                    password=os.getenv('DB_PASSWORD'),
+                    port=os.getenv('DB_PORT', '5432')
+                )
+            else:
+                self.connection_pool = None
 
             logger.info("Database connection initialized successfully")
 
@@ -156,7 +164,11 @@ class DatabaseConnection:
             List of query result rows
         """
         if not self.connection_pool:
-            raise RuntimeError("Database not initialized. Call initialize() first.")
+            # For SQLite, use SQLAlchemy engine instead
+            with self.engine.connect() as conn:
+                result = conn.execute(query, params or ())
+                return result.fetchall() if hasattr(result, 'fetchall') else []
+            return []  # This line won't be reached, but makes the linter happy
 
         conn = None
         try:
@@ -187,7 +199,8 @@ class DatabaseConnection:
         """
         try:
             with self.session_scope() as session:
-                session.execute("SELECT 1")
+                from sqlalchemy import text
+                session.execute(text("SELECT 1"))
                 logger.debug("Database connection test successful")
                 return True
 
