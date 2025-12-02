@@ -7,6 +7,7 @@ This module contains all command and message handlers for the bot.
 import logging
 from typing import Dict, Optional, List, Any
 from datetime import datetime, timedelta
+from contextlib import contextmanager
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ParseMode
 from telegram.ext import ContextTypes, CallbackQueryHandler, CommandHandler, MessageHandler, filters
@@ -15,8 +16,8 @@ from telegram.error import TelegramError
 from ..parsers.stats_parser import StatsParser
 from ..parsers.validator import StatsValidator
 from ..database.models import (
-    User, Agent, StatsSubmission, AgentStat, get_agent_by_telegram_id,
-    get_latest_submission_for_agent, get_leaderboard_for_stat
+    User, Agent, StatsSubmission, AgentStat, FactionChange, ProgressSnapshot,
+    get_agent_by_telegram_id, get_latest_submission_for_agent, get_leaderboard_for_stat
 )
 from ..config.stats_config import get_stat_by_idx, format_stat_value, get_leaderboard_stats
 
@@ -377,9 +378,9 @@ Select a category to view the leaderboard:
         await query.answer()
 
         callback_data = query.data
-        session = context.bot_data.get('session')
+        db_connection = context.bot_data.get('db_connection')
 
-        if not session:
+        if not db_connection:
             await query.edit_message_text("⚠️ Database error. Please try again later.")
             return
 
@@ -387,7 +388,7 @@ Select a category to view the leaderboard:
             if callback_data.startswith('lb_'):
                 # Individual stat leaderboard
                 stat_idx = int(callback_data.replace('lb_', ''))
-                await self._show_stat_leaderboard(query, stat_idx, session)
+                await self._show_stat_leaderboard(query, stat_idx, db_connection)
 
             elif callback_data.startswith('faction_'):
                 # Faction-based leaderboards
@@ -416,73 +417,301 @@ Select a category to view the leaderboard:
     async def _save_stats_to_database(self, user, parsed_data: Dict, context: ContextTypes.DEFAULT_TYPE) -> Dict:
         """
         Save parsed stats to database.
-        """
-        # This is a placeholder - actual database operations would be implemented
-        # based on the SQLAlchemy models created earlier
-        return {'success': True, 'submission_id': 1}
 
-    async def _show_stat_leaderboard(self, query, stat_idx: int, session) -> None:
+        This is the core function that connects parsed stats to the database.
+        """
+        from ..database.models import User, Agent, StatsSubmission, AgentStat, FactionChange, ProgressSnapshot
+        from ..database.connection import DatabaseConnection
+        from datetime import datetime, date, time
+        from sqlalchemy.exc import SQLAlchemyError
+
+        # Get database connection and create session
+        db_connection = context.bot_data.get('db_connection')
+        if not db_connection:
+            return {'error': 'Database not available'}
+
+        session = db_connection.get_session()
+        if not session:
+            return {'error': 'Could not create database session'}
+
+        try:
+            # Extract required fields from parsed data
+            agent_name = parsed_data.get(1, {}).get('value', '').strip()
+            faction = parsed_data.get(2, {}).get('value', '').strip()
+            date_str = parsed_data.get(3, {}).get('value', '').strip()
+            time_str = parsed_data.get(4, {}).get('value', '').strip()
+            level_str = parsed_data.get(5, {}).get('value', '0').replace(',', '')
+            lifetime_ap_str = parsed_data.get(6, {}).get('value', '0').replace(',', '')
+            current_ap_str = parsed_data.get(7, {}).get('value', '0').replace(',', '')
+            xm_collected_str = parsed_data.get(11, {}).get('value', '0').replace(',', '')
+
+            # Validate required fields
+            if not agent_name:
+                return {'error': 'Agent name is required'}
+            if not faction:
+                return {'error': 'Faction is required'}
+            if not date_str or not time_str:
+                return {'error': 'Date and time are required'}
+
+            # Parse and validate data
+            try:
+                level = int(level_str) if level_str else None
+                lifetime_ap = int(lifetime_ap_str) if lifetime_ap_str else None
+                current_ap = int(current_ap_str) if current_ap_str else None
+                xm_collected = int(xm_collected_str) if xm_collected_str else None
+
+                submission_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+                submission_time = time.fromisoformat(time_str)
+
+            except ValueError as e:
+                return {'error': f'Invalid data format: {e}'}
+
+            # Get or create User
+            telegram_user = user
+            user_obj = session.query(User).filter(User.telegram_id == telegram_user.id).first()
+
+            if not user_obj:
+                user_obj = User(
+                    telegram_id=telegram_user.id,
+                    username=telegram_user.username,
+                    first_name=telegram_user.first_name,
+                    last_name=telegram_user.last_name
+                )
+                session.add(user_obj)
+                session.flush()  # Get the ID without committing
+
+            # Get or create Agent
+            agent_obj = session.query(Agent).filter(
+                Agent.agent_name == agent_name
+            ).first()
+
+            is_new_agent = agent_obj is None
+            old_faction = None
+
+            if not agent_obj:
+                agent_obj = Agent(
+                    user_id=user_obj.id,
+                    agent_name=agent_name,
+                    faction=faction,
+                    level=level
+                )
+                session.add(agent_obj)
+                session.flush()
+            else:
+                # Check for faction change
+                old_faction = agent_obj.faction
+                if old_faction != faction:
+                    # Record faction change
+                    faction_change = FactionChange(
+                        agent_id=agent_obj.id,
+                        old_faction=old_faction,
+                        new_faction=faction,
+                        reason='user_submission'
+                    )
+                    session.add(faction_change)
+
+                    # Update agent faction
+                    agent_obj.faction = faction
+
+                # Update agent level if provided
+                if level is not None:
+                    agent_obj.level = level
+
+                agent_obj.updated_at = datetime.utcnow()
+
+            # Check for duplicate submission
+            existing_submission = session.query(StatsSubmission).filter(
+                StatsSubmission.agent_id == agent_obj.id,
+                StatsSubmission.submission_date == submission_date,
+                StatsSubmission.stats_type == 'ALL TIME'
+            ).first()
+
+            if existing_submission:
+                return {
+                    'error': f'Stats already submitted for {agent_name} on {submission_date}',
+                    'existing': True
+                }
+
+            # Create main stats submission
+            stats_submission = StatsSubmission(
+                agent_id=agent_obj.id,
+                submission_date=submission_date,
+                submission_time=submission_time,
+                stats_type='ALL TIME',
+                level=level,
+                lifetime_ap=lifetime_ap,
+                current_ap=current_ap,
+                xm_collected=xm_collected,
+                parser_version='1.0',
+                submission_format='telegram',
+                processed_at=datetime.utcnow()
+            )
+            session.add(stats_submission)
+            session.flush()  # Get the submission ID
+
+            # Create individual stat records
+            stats_count = 0
+            for stat_idx, stat_data in parsed_data.items():
+                if isinstance(stat_idx, int) and stat_idx > 0:  # Skip index 0 and non-int keys
+                    stat_name = stat_data.get('name', '')
+                    stat_value_str = stat_data.get('value', '0')
+                    stat_type = stat_data.get('type', 'N')
+                    original_pos = stat_data.get('original_pos', 0)
+
+                    # Parse numeric values
+                    stat_value = 0
+                    if stat_type == 'N':
+                        try:
+                            stat_value = int(stat_value_str.replace(',', ''))
+                        except ValueError:
+                            logger.warning(f"Invalid numeric value for {stat_name}: {stat_value_str}")
+                            continue
+
+                    agent_stat = AgentStat(
+                        submission_id=stats_submission.id,
+                        stat_idx=stat_idx,
+                        stat_name=stat_name,
+                        stat_value=stat_value,
+                        stat_type=stat_type,
+                        original_position=original_pos
+                    )
+                    session.add(agent_stat)
+                    stats_count += 1
+
+            # Create progress snapshot for monthly tracking
+            # This helps with monthly leaderboards
+            for stat_idx in [6, 8, 11, 13, 14, 15, 16, 17]:  # Key stats to track
+                if stat_idx in parsed_data:
+                    stat_data = parsed_data[stat_idx]
+                    try:
+                        stat_value = int(stat_data.get('value', '0').replace(',', ''))
+
+                        progress_snapshot = ProgressSnapshot(
+                            agent_id=agent_obj.id,
+                            snapshot_date=submission_date,
+                            stat_idx=stat_idx,
+                            stat_value=stat_value
+                        )
+                        session.add(progress_snapshot)
+                    except (ValueError, TypeError):
+                        continue  # Skip invalid values
+
+            # Commit everything
+            session.commit()
+
+            # Update cache if needed (this would integrate with leaderboard generator)
+            self._invalidate_leaderboard_cache(context, agent_obj.faction)
+
+            logger.info(
+                f"Successfully saved stats for {agent_name} ({agent_obj.id}) "
+                f"- {stats_count} stats, faction: {faction}"
+            )
+
+            return {
+                'success': True,
+                'submission_id': stats_submission.id,
+                'agent_name': agent_name,
+                'faction': faction,
+                'stats_count': stats_count,
+                'is_new_agent': is_new_agent,
+                'faction_changed': old_faction != faction and old_faction is not None
+            }
+
+        except SQLAlchemyError as e:
+            session.rollback()
+            logger.error(f"Database error saving stats: {e}")
+            return {'error': f'Database error: {str(e)}'}
+
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Unexpected error saving stats: {e}")
+            return {'error': f'Save error: {str(e)}'}
+
+        finally:
+            session.close()
+
+    def _invalidate_leaderboard_cache(self, context: ContextTypes.DEFAULT_TYPE, faction: str) -> None:
+        """
+        Invalidate leaderboard cache for a faction when new stats are submitted.
+
+        This ensures leaderboards stay up-to-date with fresh data.
+
+        Args:
+            context: Bot application context
+            faction: Faction that submitted new stats
+        """
+        try:
+            db_connection = context.bot_data.get('db_connection')
+            if not db_connection:
+                return
+
+            with db_connection.session_scope() as session:
+                # Delete expired cache entries
+                from datetime import datetime, timedelta
+                from ..database.models import LeaderboardCache
+
+                cutoff_time = datetime.utcnow() - timedelta(hours=1)
+
+                session.query(LeaderboardCache).filter(
+                    LeaderboardCache.expires_at < cutoff_time
+                ).delete()
+
+                session.commit()
+
+                logger.info(f"Invalidated leaderboard cache for {faction}")
+
+        except Exception as e:
+            logger.error(f"Error invalidating cache: {e}")
+
+    async def _show_stat_leaderboard(self, query, stat_idx: int, db_connection) -> None:
         """
         Display leaderboard for a specific stat.
         """
+        from ..leaderboard.formatters import LeaderboardFormatter
+
         stat_def = get_stat_by_idx(stat_idx)
         if not stat_def:
             await query.edit_message_text("⚠️ Invalid stat category.")
             return
 
         try:
-            # Get leaderboard data
-            leaderboard_data = get_leaderboard_for_stat(session, stat_idx, limit=15)
+            # Use database connection to get session and leaderboard data
+            with db_connection.session_scope() as session:
+                leaderboard_data = get_leaderboard_for_stat(session, stat_idx, limit=15)
 
-            if not leaderboard_data:
-                await query.edit_message_text(
-                    f"📊 No data available for <b>{stat_def['name']}</b> yet."
-                )
-                return
+                if not leaderboard_data:
+                    await query.edit_message_text(
+                        f"📊 No data available for <b>{stat_def['name']}</b> yet."
+                    )
+                    return
 
-            # Format leaderboard
-            text = f"🏆 <b>{stat_def['name']} Leaderboard</b>\n"
-            text += f"{'═' * 45}\n\n"
+            # Use LeaderboardFormatter for consistent display
+            formatter = LeaderboardFormatter()
 
-            for entry in leaderboard_data:
-                rank = entry['rank']
-                agent = entry['agent_name']
-                faction = entry['faction']
-                value = entry['value']
-                date = entry['date']
+            # Create leaderboard data structure that formatter expects
+            formatted_data = {
+                'stat_name': stat_def['name'],
+                'stat_idx': stat_idx,
+                'period_type': 'all_time',
+                'entries': leaderboard_data,
+                'total_entries': len(leaderboard_data),
+                'count': len(leaderboard_data),
+                'generated_at': datetime.utcnow().isoformat() + 'Z',
+                'from_cache': False
+            }
 
-                # Medals for top 3
-                if rank == 1:
-                    medal = "🥇"
-                elif rank == 2:
-                    medal = "🥈"
-                elif rank == 3:
-                    medal = "🥉"
-                else:
-                    medal = f"{rank}."
-
-                faction_emoji = '💚' if faction == 'Enlightened' else '💙'
-                formatted_value = format_stat_value(stat_idx, value)
-
-                text += f"{medal} {faction_emoji} <b>{agent}</b>\n"
-                text += f"    {formatted_value}\n\n"
-
-            text += f"<i>Updated: {datetime.now().strftime('%Y-%m-%d %H:%M')}</i>"
-
-            # Add back button
-            keyboard = [[InlineKeyboardButton("« Back", callback_data='back_to_lb_menu')]]
-            reply_markup = InlineKeyboardMarkup(keyboard)
+            # Format the leaderboard
+            text = formatter.format_leaderboard(formatted_data, f"{stat_def['name']} (All Time)")
 
             await query.edit_message_text(
                 text,
-                reply_markup=reply_markup,
                 parse_mode=ParseMode.HTML
             )
 
         except Exception as e:
-            logger.error(f"Error generating leaderboard for stat {stat_idx}: {e}")
+            logger.error(f"Error showing leaderboard for stat {stat_idx}: {e}")
             await query.edit_message_text(
-                "⚠️ Error generating leaderboard. Please try again."
+                "⚠️ Error loading leaderboard. Please try again."
             )
 
     def _get_parsing_error_message(self, error_data: Dict) -> str:

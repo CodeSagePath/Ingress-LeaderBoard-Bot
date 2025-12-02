@@ -93,19 +93,6 @@ bash  git init
   git add .
   git commit -m "Initial project setup"
 
-
-
-
-
-
-
-
-
-
-
-
-
-
 Phase 2: Stats Configuration & Data Modeling (Week 1-2)
 Task 2.1: Convert PHP Stats Configuration to Python/Node.js
 
@@ -341,6 +328,7 @@ python  def parse_tabulated(self, stats_text):
               }
       
       return result
+
 Task 3.2: Build Validation System
 
 Subtask 3.2.1: Create validator class
@@ -392,6 +380,19 @@ python  # src/parsers/validator.py
                           'value': stat['value']
                       })
           return errors
+
+
+
+
+
+
+
+
+
+
+
+
+
 Phase 4: Telegram Bot Implementation (Week 3-4)
 Task 4.1: Set Up Bot Framework
 

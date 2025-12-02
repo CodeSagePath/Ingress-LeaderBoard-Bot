@@ -70,7 +70,7 @@ class IngressLeaderboardBot:
             register_handlers(self.application)
 
             # Store database reference for handlers
-            self.application.bot_data['session'] = self.database.get_session()
+            self.application.bot_data['db_connection'] = self.database
             self.application.bot_data['settings'] = self.settings
 
             logger.info("Bot initialization completed successfully")
