@@ -610,21 +610,7 @@ python  # src/bot/callbacks.py
           formatted_text,
           parse_mode='HTML'
       )
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-      
+   
 Phase 5: Leaderboard Generation (Week 4-5)
 Task 5.1: Create Leaderboard Generator
 
@@ -802,6 +788,19 @@ python  # src/leaderboard/formatters.py
                   return f"({level_names[i]})"
           
           return "(None)"
+
+
+
+
+
+
+
+
+
+
+
+
+          
 Phase 6: Database Operations (Week 5)
 Task 6.1: Implement Database Layer
 
