@@ -1532,6 +1532,1205 @@ stat_data['value']
   health_thread.start()
 ```
 
+
+
+## Project Timeline Summary
+
+- **Week 1**: Setup, configuration, data modeling
+- **Week 2-3**: Stats parser implementation
+- **Week 3-4**: Bot implementation
+- **Week 4-5**: Leaderboard generation
+- **Week 5**: Database operations
+- **Week 6**: Additional features
+- **Week 6-7**: Testing
+- **Week 7**: Deployment
+- **Ongoing**: Documentation and maintenance
+
+## Key Recommendations
+
+1. **Start with Python** - Better for data processing and has excellent Telegram libraries
+2. **Use PostgreSQL** - Better for complex queries needed for leaderboards
+3. **Implement caching** - Leaderboard queries can be expensive
+4. **Add rate limiting** - Prevent spam submissions
+5. **Validate faction changes** - Alert if an agent changes faction
+6. **Back up regularly** - Player stats are valuable data
+7. **Monitor for new stats** - Niantic adds new stats periodically
+8. **Handle timezone properly** - Users submit from different timezones
+
+This roadmap provides a complete path from setup to deployment. Start with Phase 1 and work through systematically. Each task is broken down into actionable subtasks with code examples.Hplease continue. 
+Forgot to inform you. This bot will be running on Linode VPS. 1 GB RAM, 25 GB storage, 1 vCPU. VERSION="24.04.3 LTS (Noble Numbat)"2 / 2Continued Roadmap - Linode VPS Specific Configuration
+Phase 11: Linode VPS Setup & Optimization (Week 7-8)
+Task 11.1: Server Initial Configuration
+
+Subtask 11.1.1: Secure the VPS
+
+bash  # SSH into your Linode VPS
+  ssh root@your_linode_ip
+  
+  # Update system packages
+  apt update && apt upgrade -y
+  
+  # Create non-root user
+  adduser ingressbot
+  usermod -aG sudo ingressbot
+  
+  # Set up SSH key authentication
+  mkdir -p /home/ingressbot/.ssh
+  cp ~/.ssh/authorized_keys /home/ingressbot/.ssh/
+  chown -R ingressbot:ingressbot /home/ingressbot/.ssh
+  chmod 700 /home/ingressbot/.ssh
+  chmod 600 /home/ingressbot/.ssh/authorized_keys
+  
+  # Disable root login and password authentication
+  nano /etc/ssh/sshd_config
+  # Set: PermitRootLogin no
+  # Set: PasswordAuthentication no
+  systemctl restart sshd
+  
+  # Set up firewall
+  ufw allow OpenSSH
+  ufw allow 80/tcp
+  ufw allow 443/tcp
+  ufw enable
+
+Subtask 11.1.2: Install required software
+
+bash  # Switch to ingressbot user
+  su - ingressbot
+  
+  # Install Python 3.11 and dependencies
+  sudo apt install -y python3.11 python3.11-venv python3-pip
+  sudo apt install -y postgresql postgresql-contrib
+  sudo apt install -y nginx
+  sudo apt install -y git
+  sudo apt install -y certbot python3-certbot-nginx
+  
+  # Install supervisor for process management
+  sudo apt install -y supervisor
+
+Subtask 11.1.3: Configure PostgreSQL for low memory
+
+bash  # Edit PostgreSQL configuration for 1GB RAM VPS
+  sudo nano /etc/postgresql/16/main/postgresql.conf
+  
+  # Optimize for 1GB RAM:
+  shared_buffers = 256MB                # 25% of RAM
+  effective_cache_size = 768MB          # 75% of RAM
+  maintenance_work_mem = 64MB
+  checkpoint_completion_target = 0.9
+  wal_buffers = 16MB
+  default_statistics_target = 100
+  random_page_cost = 1.1
+  effective_io_concurrency = 200
+  work_mem = 2621kB
+  min_wal_size = 1GB
+  max_wal_size = 4GB
+  max_connections = 20                  # Lower for memory constraints
+  
+  # Restart PostgreSQL
+  sudo systemctl restart postgresql
+
+Subtask 11.1.4: Create database and user
+
+bash  # Switch to postgres user
+  sudo -u postgres psql
+  
+  # Create database and user
+  CREATE DATABASE ingress_leaderboard;
+  CREATE USER ingressbot WITH ENCRYPTED PASSWORD 'your_secure_password';
+  GRANT ALL PRIVILEGES ON DATABASE ingress_leaderboard TO ingressbot;
+  
+  # Grant schema privileges
+  \c ingress_leaderboard
+  GRANT ALL ON SCHEMA public TO ingressbot;
+  
+  # Exit
+  \q
+Task 11.2: Application Deployment
+
+Subtask 11.2.1: Clone and setup application
+
+bash  # Create application directory
+  cd /home/ingressbot
+  mkdir -p apps
+  cd apps
+  
+  # Clone your repository
+  git clone https://github.com/yourusername/ingress-leaderboard-bot.git
+  cd ingress-leaderboard-bot
+  
+  # Create virtual environment
+  python3.11 -m venv venv
+  source venv/bin/activate
+  
+  # Install dependencies
+  pip install --upgrade pip
+  pip install -r requirements.txt
+
+Subtask 11.2.2: Create optimized requirements.txt for VPS
+
+text  # requirements.txt - Optimized for low memory VPS
+  
+  python-telegram-bot==20.7
+  psycopg2-binary==2.9.9
+  python-dotenv==1.0.0
+  
+  # Optional but recommended
+  APScheduler==3.10.4      # For scheduled tasks
+  redis==5.0.1             # For caching (lightweight)
+  gunicorn==21.2.0         # For health check web server
+  flask==3.0.0             # Lightweight web framework
+  
+  # Monitoring (optional)
+  psutil==5.9.6            # System monitoring
+
+Subtask 11.2.3: Create environment configuration
+
+bash  # Create .env file
+  nano .env
+  
+  # Add configuration
+  TELEGRAM_BOT_TOKEN=your_bot_token_here
+  
+  # Database
+  DB_HOST=localhost
+  DB_NAME=ingress_leaderboard
+  DB_USER=ingressbot
+  DB_PASSWORD=your_secure_password
+  DB_PORT=5432
+  
+  # Application
+  MAX_LEADERBOARD_SIZE=50
+  CACHE_TIMEOUT=300
+  LOG_LEVEL=INFO
+  
+  # Memory optimization
+  PYTHONUNBUFFERED=1
+  PYTHONOPTIMIZE=1
+  
+  # Set permissions
+  chmod 600 .env
+
+Subtask 11.2.4: Initialize database schema
+
+bash  # Create schema file
+  nano schema.sql
+sql  -- schema.sql - Optimized for 1GB RAM
+  
+  -- Users table
+  CREATE TABLE IF NOT EXISTS users (
+      id SERIAL PRIMARY KEY,
+      telegram_id BIGINT UNIQUE NOT NULL,
+      username VARCHAR(255),
+      first_name VARCHAR(255),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  );
+  
+  -- Agents table
+  CREATE TABLE IF NOT EXISTS agents (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      agent_name VARCHAR(255) UNIQUE NOT NULL,
+      faction VARCHAR(20) CHECK (faction IN ('Enlightened', 'Resistance')),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  );
+  
+  -- Stats submissions table
+  CREATE TABLE IF NOT EXISTS stats_submissions (
+      id SERIAL PRIMARY KEY,
+      agent_id INTEGER REFERENCES agents(id) ON DELETE CASCADE,
+      submission_date DATE NOT NULL,
+      submission_time TIME NOT NULL,
+      stats_type VARCHAR(20) DEFAULT 'ALL TIME',
+      level INTEGER,
+      lifetime_ap BIGINT,
+      current_ap BIGINT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(agent_id, submission_date, stats_type)
+  );
+  
+  -- Individual stats table (partitioned for performance)
+  CREATE TABLE IF NOT EXISTS agent_stats (
+      id SERIAL PRIMARY KEY,
+      submission_id INTEGER REFERENCES stats_submissions(id) ON DELETE CASCADE,
+      stat_idx INTEGER NOT NULL,
+      stat_name VARCHAR(255) NOT NULL,
+      stat_value BIGINT NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  );
+  
+  -- Indexes for performance (critical for 1GB RAM)
+  CREATE INDEX IF NOT EXISTS idx_agent_stats_submission 
+      ON agent_stats(submission_id);
+  CREATE INDEX IF NOT EXISTS idx_agent_stats_stat_idx 
+      ON agent_stats(stat_idx);
+  CREATE INDEX IF NOT EXISTS idx_agent_stats_value 
+      ON agent_stats(stat_idx, stat_value DESC);
+  CREATE INDEX IF NOT EXISTS idx_stats_submissions_agent 
+      ON stats_submissions(agent_id);
+  CREATE INDEX IF NOT EXISTS idx_stats_submissions_date 
+      ON stats_submissions(submission_date DESC);
+  CREATE INDEX IF NOT EXISTS idx_agents_name 
+      ON agents(agent_name);
+  
+  -- Leaderboard cache table (essential for performance)
+  CREATE TABLE IF NOT EXISTS leaderboard_cache (
+      id SERIAL PRIMARY KEY,
+      stat_idx INTEGER NOT NULL,
+      faction VARCHAR(20),
+      period VARCHAR(20),
+      data JSONB,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(stat_idx, faction, period)
+  );
+  
+  CREATE INDEX IF NOT EXISTS idx_leaderboard_cache_lookup 
+      ON leaderboard_cache(stat_idx, faction, period);
+bash  # Run schema initialization
+  source venv/bin/activate
+  PGPASSWORD=your_secure_password psql -h localhost -U ingressbot -d ingress_leaderboard -f schema.sql
+Task 11.3: Process Management with Supervisor
+
+Subtask 11.3.1: Create supervisor configuration
+
+bash  sudo nano /etc/supervisor/conf.d/ingressbot.conf
+ini  [program:ingressbot]
+  directory=/home/ingressbot/apps/ingress-leaderboard-bot
+  command=/home/ingressbot/apps/ingress-leaderboard-bot/venv/bin/python main.py
+  user=ingressbot
+  autostart=true
+  autorestart=true
+  stopasgroup=true
+  killasgroup=true
+  stderr_logfile=/var/log/ingressbot/bot.err.log
+  stdout_logfile=/var/log/ingressbot/bot.out.log
+  environment=PYTHONUNBUFFERED="1"
+  
+  # Memory limits (important for 1GB RAM VPS)
+  startsecs=10
+  stopwaitsecs=30
+
+Subtask 11.3.2: Create log directories
+
+bash  sudo mkdir -p /var/log/ingressbot
+  sudo chown ingressbot:ingressbot /var/log/ingressbot
+  
+  # Create logrotate configuration
+  sudo nano /etc/logrotate.d/ingressbot
+```
+```
+  /var/log/ingressbot/*.log {
+      daily
+      rotate 7
+      compress
+      delaycompress
+      missingok
+      notifempty
+      create 0640 ingressbot ingressbot
+      sharedscripts
+      postrotate
+          supervisorctl restart ingressbot > /dev/null
+      endscript
+  }
+
+Subtask 11.3.3: Start the bot
+
+bash  # Update supervisor
+  sudo supervisorctl reread
+  sudo supervisorctl update
+  
+  # Start the bot
+  sudo supervisorctl start ingressbot
+  
+  # Check status
+  sudo supervisorctl status ingressbot
+  
+  # View logs
+  sudo tail -f /var/log/ingressbot/bot.out.log
+Task 11.4: Memory Optimization
+
+Subtask 11.4.1: Create memory-optimized main.py
+
+python  # main.py - Optimized for 1GB RAM
+  
+  import logging
+  import sys
+  import gc
+  from telegram.ext import Application
+  from src.bot.handlers import setup_handlers
+  from src.config.settings import Settings
+  from src.database.connection import DatabaseConnection
+  
+  # Configure logging
+  logging.basicConfig(
+      format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+      level=logging.INFO,
+      handlers=[
+          logging.StreamHandler(sys.stdout)
+      ]
+  )
+  
+  logger = logging.getLogger(__name__)
+  
+  def main():
+      """Start the bot with memory optimization"""
+      
+      # Enable garbage collection optimization
+      gc.enable()
+      gc.set_threshold(700, 10, 10)  # More aggressive GC for low memory
+      
+      # Initialize database connection pool (smaller pool for 1GB RAM)
+      db = DatabaseConnection(min_conn=1, max_conn=5)
+      
+      # Create application with memory-efficient settings
+      application = (
+          Application.builder()
+          .token(Settings.BOT_TOKEN)
+          .concurrent_updates(True)  # Handle updates concurrently
+          .pool_timeout(30)
+          .connect_timeout(30)
+          .read_timeout(30)
+          .write_timeout(30)
+          .get_updates_request(
+              read_timeout=2,
+              connect_timeout=5
+          )
+          .build()
+      )
+      
+      # Setup handlers
+      setup_handlers(application, db)
+      
+      # Start bot
+      logger.info("Starting Ingress Leaderboard Bot...")
+      application.run_polling(
+          allowed_updates=['message', 'callback_query'],
+          drop_pending_updates=True
+      )
+  
+  if __name__ == '__main__':
+      try:
+          main()
+      except KeyboardInterrupt:
+          logger.info("Bot stopped by user")
+      except Exception as e:
+          logger.error(f"Fatal error: {e}", exc_info=True)
+          sys.exit(1)
+
+Subtask 11.4.2: Implement Redis caching for leaderboards
+
+bash  # Install Redis (lightweight, ~5MB memory)
+  sudo apt install -y redis-server
+  
+  # Configure Redis for low memory
+  sudo nano /etc/redis/redis.conf
+  
+  # Add/modify these settings:
+  maxmemory 128mb
+  maxmemory-policy allkeys-lru
+  save ""  # Disable persistence to save memory
+  
+  # Restart Redis
+  sudo systemctl restart redis-server
+python  # src/cache/redis_cache.py
+  
+  import redis
+  import json
+  import logging
+  from typing import Optional, Any
+  
+  logger = logging.getLogger(__name__)
+  
+  class LeaderboardCache:
+      def __init__(self, host='localhost', port=6379, db=0):
+          try:
+              self.redis = redis.Redis(
+                  host=host, 
+                  port=port, 
+                  db=db,
+                  decode_responses=True,
+                  socket_connect_timeout=5
+              )
+              self.redis.ping()
+              logger.info("Redis cache connected")
+          except redis.ConnectionError:
+              logger.warning("Redis not available, using memory cache")
+              self.redis = None
+          
+          # Fallback memory cache
+          self.memory_cache = {}
+      
+      def get(self, key: str) -> Optional[Any]:
+          """Get cached value"""
+          if self.redis:
+              try:
+                  value = self.redis.get(key)
+                  return json.loads(value) if value else None
+              except Exception as e:
+                  logger.error(f"Redis get error: {e}")
+          
+          return self.memory_cache.get(key)
+      
+      def set(self, key: str, value: Any, ttl: int = 300):
+          """Set cached value with TTL"""
+          if self.redis:
+              try:
+                  self.redis.setex(
+                      key, 
+                      ttl, 
+                      json.dumps(value)
+                  )
+                  return
+              except Exception as e:
+                  logger.error(f"Redis set error: {e}")
+          
+          # Fallback to memory cache
+          self.memory_cache[key] = value
+          
+          # Limit memory cache size
+          if len(self.memory_cache) > 100:
+              # Remove oldest entries
+              keys = list(self.memory_cache.keys())[:50]
+              for k in keys:
+                  del self.memory_cache[k]
+      
+      def delete(self, pattern: str):
+          """Delete cached values matching pattern"""
+          if self.redis:
+              try:
+                  keys = self.redis.keys(pattern)
+                  if keys:
+                      self.redis.delete(*keys)
+              except Exception as e:
+                  logger.error(f"Redis delete error: {e}")
+          else:
+              # Clear memory cache
+              keys_to_delete = [
+                  k for k in self.memory_cache.keys() 
+                  if pattern.replace('*', '') in k
+              ]
+              for k in keys_to_delete:
+                  del self.memory_cache[k]
+
+Subtask 11.4.3: Update leaderboard generator with caching
+
+python  # src/leaderboard/generator.py - With caching
+  
+  from src.cache.redis_cache import LeaderboardCache
+  import hashlib
+  
+  class LeaderboardGenerator:
+      def __init__(self, db_connection):
+          self.db = db_connection
+          self.cache = LeaderboardCache()
+      
+      def generate(self, stat_idx, limit=20, faction=None):
+          """Generate leaderboard with caching"""
+          
+          # Create cache key
+          cache_key = f"lb:{stat_idx}:{faction or 'all'}:{limit}"
+          
+          # Try cache first
+          cached = self.cache.get(cache_key)
+          if cached:
+              return cached
+          
+          # Generate leaderboard
+          query = """
+          WITH latest_submissions AS (
+              SELECT DISTINCT ON (agent_id) 
+                  agent_id,
+                  id as submission_id,
+                  submission_date
+              FROM stats_submissions
+              WHERE stats_type = 'ALL TIME'
+              ORDER BY agent_id, submission_date DESC, created_at DESC
+          )
+          SELECT 
+              a.agent_name,
+              a.faction,
+              ast.stat_value,
+              ss.submission_date
+          FROM latest_submissions ls
+          JOIN agents a ON a.id = ls.agent_id
+          JOIN stats_submissions ss ON ss.id = ls.submission_id
+          JOIN agent_stats ast ON ast.submission_id = ss.id
+          WHERE ast.stat_idx = %s
+          """
+          
+          params = [stat_idx]
+          
+          if faction:
+              query += " AND a.faction = %s"
+              params.append(faction)
+          
+          query += """
+          ORDER BY ast.stat_value DESC
+          LIMIT %s
+          """
+          params.append(limit)
+          
+          results = self.db.execute_query(query, params)
+          
+          leaderboard = [
+              {
+                  'rank': idx + 1,
+                  'agent_name': row[0],
+                  'faction': row[1],
+                  'value': row[2],
+                  'date': row[3].isoformat() if row[3] else None
+              }
+              for idx, row in enumerate(results)
+          ]
+          
+          # Cache for 5 minutes
+          self.cache.set(cache_key, leaderboard, ttl=300)
+          
+          return leaderboard
+Task 11.5: System Monitoring
+
+Subtask 11.5.1: Create monitoring script
+
+python  # scripts/monitor.py
+  
+  import psutil
+  import logging
+  from datetime import datetime
+  
+  logging.basicConfig(
+      filename='/var/log/ingressbot/monitor.log',
+      level=logging.INFO,
+      format='%(asctime)s - %(message)s'
+  )
+  
+  def check_system():
+      """Monitor system resources"""
+      
+      # Memory usage
+      memory = psutil.virtual_memory()
+      memory_percent = memory.percent
+      memory_available = memory.available / (1024 * 1024)  # MB
+      
+      # CPU usage
+      cpu_percent = psutil.cpu_percent(interval=1)
+      
+      # Disk usage
+      disk = psutil.disk_usage('/')
+      disk_percent = disk.percent
+      
+      # Log status
+      logging.info(
+          f"Memory: {memory_percent}% used, "
+          f"{memory_available:.0f}MB available | "
+          f"CPU: {cpu_percent}% | "
+          f"Disk: {disk_percent}%"
+      )
+      
+      # Alert if memory is critical
+      if memory_percent > 85:
+          logging.warning(f"HIGH MEMORY USAGE: {memory_percent}%")
+          # Could send Telegram alert here
+      
+      if disk_percent > 80:
+          logging.warning(f"HIGH DISK USAGE: {disk_percent}%")
+  
+  if __name__ == '__main__':
+      check_system()
+
+Subtask 11.5.2: Set up cron job for monitoring
+
+bash  # Add to crontab
+  crontab -e
+  
+  # Add this line (monitor every 5 minutes)
+  */5 * * * * /home/ingressbot/apps/ingress-leaderboard-bot/venv/bin/python /home/ingressbot/apps/ingress-leaderboard-bot/scripts/monitor.py
+
+Subtask 11.5.3: Create health check endpoint
+
+python  # src/health_check.py
+  
+  from flask import Flask, jsonify
+  import psycopg2
+  import os
+  
+  app = Flask(__name__)
+  
+  @app.route('/health')
+  def health():
+      """Health check endpoint"""
+      status = {
+          'status': 'healthy',
+          'timestamp': datetime.now().isoformat()
+      }
+      
+      # Check database connection
+      try:
+          conn = psycopg2.connect(
+              host=os.getenv('DB_HOST'),
+              database=os.getenv('DB_NAME'),
+              user=os.getenv('DB_USER'),
+              password=os.getenv('DB_PASSWORD')
+          )
+          conn.close()
+          status['database'] = 'connected'
+      except Exception as e:
+          status['database'] = 'error'
+          status['error'] = str(e)
+          return jsonify(status), 500
+      
+      return jsonify(status)
+  
+  if __name__ == '__main__':
+      app.run(host='0.0.0.0', port=8080)
+
+Subtask 11.5.4: Add health check to supervisor
+
+bash  sudo nano /etc/supervisor/conf.d/healthcheck.conf
+ini  [program:healthcheck]
+  directory=/home/ingressbot/apps/ingress-leaderboard-bot
+  command=/home/ingressbot/apps/ingress-leaderboard-bot/venv/bin/python src/health_check.py
+  user=ingressbot
+  autostart=true
+  autorestart=true
+  stderr_logfile=/var/log/ingressbot/health.err.log
+  stdout_logfile=/var/log/ingressbot/health.out.log
+bash  sudo supervisorctl reread
+  sudo supervisorctl update
+  sudo supervisorctl start healthcheck
+Task 11.6: Nginx Configuration (Optional Web Interface)
+
+Subtask 11.6.1: Configure Nginx
+
+bash  sudo nano /etc/nginx/sites-available/ingressbot
+nginx  server {
+      listen 80;
+      server_name your_domain.com;  # Or Linode IP
+      
+      # Health check endpoint
+      location /health {
+          proxy_pass http://127.0.0.1:8080/health;
+          proxy_set_header Host $host;
+          proxy_set_header X-Real-IP $remote_addr;
+      }
+      
+      # Future web interface location
+      location / {
+          return 200 "Ingress Leaderboard Bot - Running";
+          add_header Content-Type text/plain;
+      }
+  }
+bash  # Enable site
+  sudo ln -s /etc/nginx/sites-available/ingressbot /etc/nginx/sites-enabled/
+  
+  # Test configuration
+  sudo nginx -t
+  
+  # Restart Nginx
+  sudo systemctl restart nginx
+Task 11.7: Backup Strategy
+
+Subtask 11.7.1: Create backup script
+
+bash  # scripts/backup.sh
+  
+  #!/bin/bash
+  
+  # Configuration
+  BACKUP_DIR="/home/ingressbot/backups"
+  DB_NAME="ingress_leaderboard"
+  DB_USER="ingressbot"
+  RETENTION_DAYS=7
+  
+  # Create backup directory
+  mkdir -p $BACKUP_DIR
+  
+  # Generate timestamp
+  TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+  BACKUP_FILE="$BACKUP_DIR/db_backup_$TIMESTAMP.sql.gz"
+  
+  # Perform backup
+  PGPASSWORD=$DB_PASSWORD pg_dump -h localhost -U $DB_USER $DB_NAME | gzip > $BACKUP_FILE
+  
+  # Check if backup was successful
+  if [ $? -eq 0 ]; then
+      echo "Backup successful: $BACKUP_FILE"
+      
+      # Delete old backups
+      find $BACKUP_DIR -name "db_backup_*.sql.gz" -mtime +$RETENTION_DAYS -delete
+  else
+      echo "Backup failed!"
+      exit 1
+  fi
+bash  # Make executable
+  chmod +x scripts/backup.sh
+  
+  # Add to crontab (daily at 2 AM)
+  crontab -e
+  0 2 * * * /home/ingressbot/apps/ingress-leaderboard-bot/scripts/backup.sh >> /var/log/ingressbot/backup.log 2>&1
+
+Subtask 11.7.2: Optional: S3/Cloud backup
+
+bash  # Install AWS CLI (if using S3)
+  pip install awscli
+  
+  # Configure
+  aws configure
+  
+  # Modify backup script to upload to S3
+  # Add to backup.sh:
+  # aws s3 cp $BACKUP_FILE s3://your-bucket/ingress-backups/
+Task 11.8: Performance Tuning
+
+Subtask 11.8.1: Database connection pooling
+
+python  # src/database/connection.py - Optimized for Linode VPS
+  
+  import psycopg2
+  from psycopg2 import pool
+  import os
+  import logging
+  
+  logger = logging.getLogger(__name__)
+  
+  class DatabaseConnection:
+      def __init__(self, min_conn=1, max_conn=5):
+          """Initialize connection pool for 1GB RAM VPS"""
+          try:
+              self.pool = psycopg2.pool.SimpleConnectionPool(
+                  min_conn,
+                  max_conn,
+                  host=os.getenv('DB_HOST'),
+                  database=os.getenv('DB_NAME'),
+                  user=os.getenv('DB_USER'),
+                  password=os.getenv('DB_PASSWORD'),
+                  port=os.getenv('DB_PORT', 5432)
+              )
+              logger.info(
+                  f"Database pool created: "
+                  f"{min_conn}-{max_conn} connections"
+              )
+          except Exception as e:
+              logger.error(f"Failed to create connection pool: {e}")
+              raise
+      
+      def get_connection(self):
+          """Get connection from pool"""
+          try:
+              return self.pool.getconn()
+          except pool.PoolError as e:
+              logger.error(f"Pool exhausted: {e}")
+              raise
+      
+      def return_connection(self, conn):
+          """Return connection to pool"""
+          self.pool.putconn(conn)
+      
+      def execute_query(self, query, params=None, fetch=True):
+          """Execute query with automatic connection management"""
+          conn = self.get_connection()
+          try:
+              with conn.cursor() as cursor:
+                  cursor.execute(query, params)
+                  conn.commit()
+                  
+                  if fetch:
+                      return cursor.fetchall()
+                  return None
+          except Exception as e:
+              conn.rollback()
+              logger.error(f"Query error: {e}")
+              raise
+          finally:
+              self.return_connection(conn)
+      
+      def close_all(self):
+          """Close all connections"""
+          self.pool.closeall()
+
+Subtask 11.8.2: Implement batch processing for stats
+
+python  # src/database/batch_operations.py
+  
+  class BatchOperations:
+      def __init__(self, db_connection):
+          self.db = db_connection
+          self.batch_size = 100
+      
+      def batch_insert_stats(self, stats_list):
+          """Insert stats in batches to reduce memory usage"""
+          conn = self.db.get_connection()
+          try:
+              with conn.cursor() as cursor:
+                  # Process in batches
+                  for i in range(0, len(stats_list), self.batch_size):
+                      batch = stats_list[i:i + self.batch_size]
+                      
+                      cursor.executemany("""
+                          INSERT INTO agent_stats 
+                          (submission_id, stat_idx, stat_name, stat_value)
+                          VALUES (%s, %s, %s, %s)
+                      """, batch)
+                      
+                      conn.commit()
+                      
+          except Exception as e:
+              conn.rollback()
+              raise
+          finally:
+              self.db.return_connection(conn)
+Phase 12: Maintenance & Troubleshooting Guide
+Task 12.1: Common Issues & Solutions
+
+Subtask 12.1.1: Memory issues troubleshooting
+
+bash  # Check memory usage
+  free -h
+  
+  # Check which process is using memory
+  ps aux --sort=-%mem | head -10
+  
+  # If bot is using too much memory, restart it
+  sudo supervisorctl restart ingressbot
+  
+  # Check for memory leaks in logs
+  grep -i "memory" /var/log/ingressbot/bot.out.log
+  
+  # Enable swap if needed (emergency only)
+  sudo fallocate -l 1G /swapfile
+  sudo chmod 600 /swapfile
+  sudo mkswap /swapfile
+  sudo swapon /swapfile
+  # Add to /etc/fstab for persistence:
+  # /swapfile none swap sw 0 0
+
+Subtask 12.1.2: Database optimization queries
+
+sql  -- Check database size
+  SELECT pg_size_pretty(pg_database_size('ingress_leaderboard'));
+  
+  -- Check table sizes
+  SELECT 
+      schemaname,
+      tablename,
+      pg_size_pretty(pg_total_relation_size(schemaname||'.'||tablename)) AS size
+  FROM pg_tables
+  WHERE schemaname = 'public'
+  ORDER BY pg_total_relation_size(schemaname||'.'||tablename) DESC;
+  
+  -- Vacuum and analyze (run monthly)
+  VACUUM ANALYZE;
+  
+  -- Reindex if needed
+  REINDEX DATABASE ingress_leaderboard;
+  
+  -- Delete old submissions if needed (keep last 90 days)
+  DELETE FROM stats_submissions 
+  WHERE submission_date < CURRENT_DATE - INTERVAL '90 days';
+
+Subtask 12.1.3: Bot troubleshooting commands
+
+bash  # Check bot status
+  sudo supervisorctl status ingressbot
+  
+  # View real-time logs
+  sudo tail -f /var/log/ingressbot/bot.out.log
+  
+  # View error logs
+  sudo tail -f /var/log/ingressbot/bot.err.log
+  
+  # Restart bot
+  sudo supervisorctl restart ingressbot
+  
+  # Stop bot
+  sudo supervisorctl stop ingressbot
+  
+  # Start bot
+  sudo supervisorctl start ingressbot
+  
+  # Check if bot is responding
+  curl http://localhost:8080/health
+  
+  # Check PostgreSQL status
+  sudo systemctl status postgresql
+  
+  # Check Redis status
+  sudo systemctl status redis-server
+  
+  # Monitor system resources
+  htop
+Task 12.2: Maintenance Scripts
+
+Subtask 12.2.1: Create cleanup script
+
+bash  # scripts/cleanup.sh
+  
+  #!/bin/bash
+  
+  echo "Starting cleanup..."
+  
+  # Clean old logs (keep 7 days)
+  find /var/log/ingressbot -name "*.log" -mtime +7 -delete
+  
+  # Clean Python cache
+  find /HContinuehome/ingressbot/apps/ingress-leaderboard-bot -type d -name pycache -exec rm -r {} + 2>/dev/null
+Clean old backups (keep 7 days)
+find /home/ingressbot/backups -name "*.sql.gz" -mtime +7 -delete
+Database vacuum (run monthly)
+if [ $(date +%d) -eq 01 ]; then
+PGPASSWORD=$DB_PASSWORD psql -h localhost -U ingressbot -d ingress_leaderboard -c "VACUUM ANALYZE;"
+echo "Database vacuumed"
+fi
+echo "Cleanup completed"
+```bash
+  chmod +x scripts/cleanup.sh
+  
+  # Add to crontab (weekly)
+  crontab -e
+  0 3 * * 0 /home/ingressbot/apps/ingress-leaderboard-bot/scripts/cleanup.sh >> /var/log/ingressbot/cleanup.log 2>&1
+```
+
+- **Subtask 12.2.2**: Update script
+```bash
+  # scripts/update.sh
+  
+  #!/bin/bash
+  
+  cd /home/ingressbot/apps/ingress-leaderboard-bot
+  
+  echo "Pulling latest changes..."
+  git pull origin main
+  
+  echo "Activating virtual environment..."
+  source venv/bin/activate
+  
+  echo "Updating dependencies..."
+  pip install -r requirements.txt --upgrade
+  
+  echo "Running database migrations (if any)..."
+  # Add migration command here if using Alembic
+  
+  echo "Restarting bot..."
+  sudo supervisorctl restart ingressbot
+  
+  echo "Waiting for bot to start..."
+  sleep 5
+  
+  echo "Checking status..."
+  sudo supervisorctl status ingressbot
+  
+  echo "Update completed"
+```
+```bash
+  chmod +x scripts/update.sh
+```
+
+#### Task 12.3: Monitoring Dashboard Setup
+
+- **Subtask 12.3.1**: Create simple stats endpoint
+```python
+  # Add to src/health_check.py
+  
+  @app.route('/stats')
+  def stats():
+      """System statistics endpoint"""
+      import psutil
+      
+      # System stats
+      memory = psutil.virtual_memory()
+      disk = psutil.disk_usage('/')
+      
+      # Database stats
+      try:
+          conn = psycopg2.connect(
+              host=os.getenv('DB_HOST'),
+              database=os.getenv('DB_NAME'),
+              user=os.getenv('DB_USER'),
+              password=os.getenv('DB_PASSWORD')
+          )
+          cursor = conn.cursor()
+          
+          # Count users
+          cursor.execute("SELECT COUNT(*) FROM users")
+          user_count = cursor.fetchone()[0]
+          
+          # Count agents
+          cursor.execute("SELECT COUNT(*) FROM agents")
+          agent_count = cursor.fetchone()[0]
+          
+          # Count submissions
+          cursor.execute("SELECT COUNT(*) FROM stats_submissions")
+          submission_count = cursor.fetchone()[0]
+          
+          conn.close()
+          
+          return jsonify({
+              'system': {
+                  'memory_percent': memory.percent,
+                  'memory_available_mb': memory.available / (1024*1024),
+                  'disk_percent': disk.percent,
+                  'disk_free_gb': disk.free / (1024*1024*1024)
+              },
+              'database': {
+                  'users': user_count,
+                  'agents': agent_count,
+                  'submissions': submission_count
+              },
+              'timestamp': datetime.now().isoformat()
+          })
+      except Exception as e:
+          return jsonify({'error': str(e)}), 500
+```
+
+### Phase 13: Security Hardening
+
+#### Task 13.1: Additional Security Measures
+
+- **Subtask 13.1.1**: Configure fail2ban
+```bash
+  # Install fail2ban
+  sudo apt install -y fail2ban
+  
+  # Create custom jail for SSH
+  sudo nano /etc/fail2ban/jail.local
+```
+```ini
+  [sshd]
+  enabled = true
+  port = ssh
+  filter = sshd
+  logpath = /var/log/auth.log
+  maxretry = 3
+  bantime = 3600
+  findtime = 600
+```
+```bash
+  # Restart fail2ban
+  sudo systemctl restart fail2ban
+  
+  # Check status
+  sudo fail2ban-client status sshd
+```
+
+- **Subtask 13.1.2**: Set up automatic security updates
+```bash
+  # Install unattended-upgrades
+  sudo apt install -y unattended-upgrades
+  
+  # Configure
+  sudo dpkg-reconfigure -plow unattended-upgrades
+  
+  # Edit configuration
+  sudo nano /etc/apt/apt.conf.d/50unattended-upgrades
+  
+  # Enable automatic reboot if needed (optional)
+  # Uncomment: Unattended-Upgrade::Automatic-Reboot "true";
+  # Uncomment: Unattended-Upgrade::Automatic-Reboot-Time "02:00";
+```
+
+- **Subtask 13.1.3**: Secure PostgreSQL
+```bash
+  # Edit pg_hba.conf
+  sudo nano /etc/postgresql/16/main/pg_hba.conf
+  
+  # Ensure only local connections are allowed:
+  # local   all             all                                     peer
+  # host    all             all             127.0.0.1/32            md5
+  # host    all             all             ::1/128                 md5
+  
+  sudo systemctl restart postgresql
+```
+
+### Phase 14: Quick Start Guide for Deployment
+
+#### Complete Deployment Checklist:
+```bash
+# 1. Initial Server Setup
+ssh root@your_linode_ip
+apt update && apt upgrade -y
+adduser ingressbot
+usermod -aG sudo ingressbot
+
+# 2. Install Software
+apt install -y python3.11 python3.11-venv python3-pip postgresql redis-server nginx supervisor git
+
+# 3. Configure PostgreSQL
+sudo -u postgres psql
+CREATE DATABASE ingress_leaderboard;
+CREATE USER ingressbot WITH ENCRYPTED PASSWORD 'your_password';
+GRANT ALL PRIVILEGES ON DATABASE ingress_leaderboard TO ingressbot;
+\c ingress_leaderboard
+GRANT ALL ON SCHEMA public TO ingressbot;
+\q
+
+# 4. Setup Application
+su - ingressbot
+mkdir -p apps && cd apps
+git clone your_repo_url ingress-leaderboard-bot
+cd ingress-leaderboard-bot
+python3.11 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+# 5. Configure Environment
+nano .env
+# Add all environment variables
+chmod 600 .env
+
+# 6. Initialize Database
+source venv/bin/activate
+psql -h localhost -U ingressbot -d ingress_leaderboard -f schema.sql
+
+# 7. Setup Supervisor
+sudo nano /etc/supervisor/conf.d/ingressbot.conf
+# Add configuration
+sudo mkdir -p /var/log/ingressbot
+sudo chown ingressbot:ingressbot /var/log/ingressbot
+sudo supervisorctl reread
+sudo supervisorctl update
+sudo supervisorctl start ingressbot
+
+# 8. Check Status
+sudo supervisorctl status
+tail -f /var/log/ingressbot/bot.out.log
+```
+
+## Final Notes for 1GB RAM Linode VPS:
+
+1. **Memory Management Critical**:
+   - Keep connection pools small (max 5)
+   - Enable aggressive garbage collection
+   - Use Redis for caching
+   - Monitor memory constantly
+
+2. **Database Optimization**:
+   - Regular VACUUM ANALYZE
+   - Keep indexes minimal but effective
+   - Archive old data periodically
+   - Use connection pooling
+
+3. **Performance Tips**:
+   - Cache leaderboards (5-minute TTL)
+   - Batch database operations
+   - Use Redis for session data
+   - Limit concurrent updates
+
+4. **Monitoring**:
+   - Set up cron jobs for monitoring
+   - Configure alerts for high memory
+   - Regular backups to external storage
+   - Log rotation is essential
+
+5. **Scaling Considerations**:
+   - If you exceed 1000 active users, consider upgrading to 2GB RAM
+   - If database grows > 15GB, consider separate database server
+   - Monitor query performance regularly
+
+This setup should run efficiently on your 1GB Linode VPS for a moderate-sized Ingress community (up to ~1000 agents with regular submissions).Claude can make mistakes. Please double-check responses. Sonnet 4.5
+
+
+
+
+
 ## Project Timeline Summary
 
 - **Week 1**: Setup, configuration, data modeling

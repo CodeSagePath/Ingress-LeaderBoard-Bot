@@ -1,0 +1,322 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  PYTHON_VERSION: '3.11'
+  NODE_VERSION: '18'
+
+jobs:
+  code-quality:
+    name: Code Quality
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install flake8 black isort mypy pytest pytest-cov
+
+    - name: Code formatting check (black)
+      run: black --check --diff src/ tests/
+
+    - name: Import sorting check (isort)
+      run: isort --check-only --diff src/ tests/
+
+    - name: Lint with flake8
+      run: |
+        flake8 src/ tests/ --count --select=E9,F63,F7,F82 --show-source --statistics
+        flake8 src/ tests/ --count --exit-zero --max-complexity=10 --max-line-length=88 --statistics
+
+    - name: Type checking with mypy
+      run: mypy src/ --ignore-missing-imports --no-strict-optional
+
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install bandit safety
+
+    - name: Security scan with bandit
+      run: bandit -r src/ -f json -o bandit-report.json || true
+
+    - name: Check dependencies for security vulnerabilities
+      run: safety check --json --output safety-report.json || true
+
+    - name: Upload security reports
+      uses: actions/upload-artifact@v3
+      with:
+        name: security-reports
+        path: |
+          bandit-report.json
+          safety-report.json
+
+  test:
+    name: Test Suite
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: test_db
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+      redis:
+        image: redis:7
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest pytest-cov pytest-mock pytest-asyncio
+
+    - name: Run tests with coverage
+      env:
+        TELEGRAM_BOT_TOKEN: fake_token_for_testing
+        DB_HOST: localhost
+        DB_PORT: 5432
+        DB_NAME: test_db
+        DB_USER: postgres
+        DB_PASSWORD: test_password
+        REDIS_HOST: localhost
+        REDIS_PORT: 6379
+        ENVIRONMENT: testing
+        PRODUCTION: false
+        DEBUG: true
+      run: |
+        pytest tests/ -v \
+          --cov=src \
+          --cov-report=xml \
+          --cov-report=html \
+          --cov-fail-under=80 \
+          --tb=short
+
+    - name: Upload coverage reports
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.xml
+        flags: unittests
+        name: codecov-umbrella
+
+    - name: Upload coverage HTML
+      uses: actions/upload-artifact@v3
+      with:
+        name: coverage-report
+        path: htmlcov/
+
+  integration-test:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: [test]
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        target: production
+        load: true
+        tags: ingress-leaderboard:test
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Start services with Docker Compose
+      run: |
+        cp .env.example .env.test
+        echo "ENVIRONMENT=testing" >> .env.test
+        echo "TELEGRAM_BOT_TOKEN=fake_token_for_testing" >> .env.test
+        echo "DB_PASSWORD=test_password" >> .env.test
+        docker-compose -f docker-compose.yml --env-file .env.test up -d db redis
+
+    - name: Wait for services
+      run: |
+        timeout 60 bash -c 'until docker-compose exec db pg_isready -U postgres; do sleep 2; done'
+        timeout 60 bash -c 'until docker-compose exec redis redis-cli ping; do sleep 2; done'
+
+    - name: Run integration tests
+      run: |
+        docker run --network ingress_bot_network \
+          -e ENVIRONMENT=testing \
+          -e DB_HOST=db \
+          -e DB_PASSWORD=test_password \
+          -e TELEGRAM_BOT_TOKEN=fake_token_for_testing \
+          ingress-leaderboard:test \
+          python -m pytest tests/integration/ -v || true
+
+    - name: Clean up
+      if: always()
+      run: |
+        docker-compose -f docker-compose.yml --env-file .env.test down -v
+
+  build-and-push:
+    name: Build and Push Docker Images
+    runs-on: ubuntu-latest
+    needs: [code-quality, security-scan, test]
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+      image-digest: ${{ steps.build.outputs.digest }}
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: your-docker-hub/ingress-leaderboard-bot
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=sha,prefix={{branch}}-
+          type=raw,value=latest,enable={{is_default_branch}}
+
+    - name: Build and push Docker image
+      id: build
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        target: production
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        platforms: linux/amd64,linux/arm64
+
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [build-and-push]
+    if: github.ref == 'refs/heads/develop'
+    environment:
+      name: staging
+      url: https://staging.your-domain.com
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'v1.28.0'
+
+    - name: Configure kubectl
+      run: |
+        echo "${{ secrets.KUBE_CONFIG_STAGING }}" | base64 -d > kubeconfig
+        export KUBECONFIG=kubeconfig
+
+    - name: Deploy to Kubernetes
+      run: |
+        export KUBECONFIG=kubeconfig
+
+        # Update image tag in deployment
+        sed -i "s|ingress-leaderboard-bot:staging|${{ needs.build-and-push.outputs.image-tag }}|g" kubernetes/deployment.yaml
+
+        # Apply manifests
+        kubectl apply -f kubernetes/namespace.yaml
+        kubectl apply -f kubernetes/configmap.yaml
+        kubectl apply -f kubernetes/secrets.yaml
+        kubectl apply -f kubernetes/deployment.yaml -n ingress-leaderboard-staging
+        kubectl apply -f kubernetes/service.yaml -n ingress-leaderboard-staging
+        kubectl apply -f kubernetes/ingress.yaml -n ingress-leaderboard-staging
+
+    - name: Verify deployment
+      run: |
+        export KUBECONFIG=kubeconfig
+        kubectl rollout status deployment/ingress-leaderboard-bot -n ingress-leaderboard-staging --timeout=300s
+        kubectl get pods -n ingress-leaderboard-staging
+
+  notify:
+    name: Notify Results
+    runs-on: ubuntu-latest
+    needs: [code-quality, security-scan, test, build-and-push]
+    if: always()
+    steps:
+    - name: Notify on success
+      if: success()
+      run: |
+        echo "✅ CI Pipeline completed successfully!"
+        echo "Image built: ${{ needs.build-and-push.outputs.image-tag }}"
+
+    - name: Notify on failure
+      if: failure()
+      run: |
+        echo "❌ CI Pipeline failed!"
+        echo "Check the logs for details."

@@ -2,50 +2,83 @@ version: '3.8'
 
 services:
   bot:
-    build: .
+    build:
+      context: .
+      target: development
     env_file: .env
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
+      test: ["CMD", "python", "/app/healthcheck.py"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
+    volumes:
+      - ./src:/app/src
+      - ./logs:/app/logs
+    environment:
+      - ENVIRONMENT=development
+    networks:
+      - ingress_bot_network
 
   db:
     image: postgres:15-alpine
     environment:
-      POSTGRES_DB: ${DB_NAME:-ingress_leaderboard}
+      POSTGRES_DB: ${DB_NAME:-ingress_leaderboard_dev}
       POSTGRES_USER: ${DB_USER:-postgres}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_INITDB_ARGS: "--encoding=UTF-8"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_dev_data:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d
     ports:
       - "${DB_PORT:-5432}:5432"
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-ingress_leaderboard}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-ingress_leaderboard_dev}"]
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - ingress_bot_network
 
   # Optional: Redis for caching (if you want advanced caching)
   redis:
     image: redis:7-alpine
-    command: redis-server --appendonly yes
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-dev_password}
     volumes:
-      - redis_data:/data
+      - redis_dev_data:/data
     ports:
       - "6379:6379"
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - ingress_bot_network
+
+  # Optional: Adminer for database management (development only)
+  adminer:
+    image: adminer:latest
+    ports:
+      - "8080:8080"
+    environment:
+      ADMINER_DEFAULT_SERVER: db
+    depends_on:
+      - db
+    restart: unless-stopped
+    networks:
+      - ingress_bot_network
 
 volumes:
-  postgres_data:
-  redis_data:
+  postgres_dev_data:
+  redis_dev_data:
 
 networks:
-  default:
-    name: ingress_bot_network
+  ingress_bot_network:
+    driver: bridge

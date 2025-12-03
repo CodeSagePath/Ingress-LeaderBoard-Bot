@@ -1,0 +1,56 @@
+# Version control
+.git
+.gitignore
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv
+venv/
+env/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Documentation (optional for production)
+*.md
+docs/
+
+# Cache and temporary files
+.cache/
+*.tmp
+*.temp
+
+# Development tools
+.pre-commit-config.yaml
+.flake8
+.pylintrc
+mypy.ini
+
+# Build artifacts
+dist/
+build/
+*.egg-info/

@@ -1,0 +1,100 @@
+version: '3.8'
+
+services:
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    container_name: ingress_bot_dev
+    env_file:
+      - .env
+    environment:
+      # Development-specific overrides
+      - DEBUG=true
+      - LOG_LEVEL=DEBUG
+      - BOT_DEBUG=true
+      - DB_HOST=db
+      - DB_NAME=ingress_leaderboard_dev
+      - LEADERBOARD_CACHE_TIMEOUT=60
+      - BOT_RATE_LIMIT_PER_MINUTE=30
+    volumes:
+      # Mount source code for live reload
+      - .:/app
+      - /app/__pycache__
+      # Persist development data
+      - dev_bot_data:/app/data
+    ports:
+      - "8443:8443"  # Webhook port for development
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - ingress_dev_network
+
+  db:
+    image: postgres:15-alpine
+    container_name: ingress_db_dev
+    environment:
+      POSTGRES_DB: ingress_leaderboard_dev
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: dev_password
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8"
+    volumes:
+      # Persist database data
+      - dev_postgres_data:/var/lib/postgresql/data
+      # Mount initialization scripts
+      - ./scripts:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ingress_leaderboard_dev"]
+      interval: 5s
+      timeout: 10s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - ingress_dev_network
+
+  # Optional: Redis for testing (commented out for simplicity)
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: ingress_redis_dev
+  #   ports:
+  #     - "6379:6379"
+  #   volumes:
+  #     - dev_redis_data:/data
+  #   restart: unless-stopped
+  #   networks:
+  #     - ingress_dev_network
+
+  # Development utilities
+  adminer:
+    image: adminer:latest
+    container_name: ingress_adminer_dev
+    ports:
+      - "8080:8080"
+    environment:
+      ADMINER_DEFAULT_SERVER: db
+    depends_on:
+      - db
+    restart: unless-stopped
+    networks:
+      - ingress_dev_network
+
+volumes:
+  dev_postgres_data:
+    driver: local
+  dev_bot_data:
+    driver: local
+  # dev_redis_data:
+  #   driver: local
+
+networks:
+  ingress_dev_network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

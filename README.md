@@ -189,14 +189,146 @@ GRANT ALL PRIVILEGES ON DATABASE ingress_leaderboard TO ingress_bot;
 
 ## Development
 
-### Running in Development Mode
+### 🐳 Local Development with Docker (Recommended)
+
+The easiest way to set up a local development environment is using Docker Compose. This includes:
+
+- 🤖 **Bot service** with hot reload
+- 🗄️ **PostgreSQL database** with sample data
+- 🔧 **Adminer** for database management
+- 📊 **Development tools** and utilities
+
+#### Quick Setup
 
 ```bash
-# Enable debug mode
+# 1. Clone the repository
+git clone https://github.com/yourusername/ingress-leaderboard-bot.git
+cd ingress-leaderboard-bot
+
+# 2. Run the development setup script
+./scripts/dev-setup.sh
+
+# 3. Edit .env file with your bot token
+nano .env
+# Add your TELEGRAM_BOT_TOKEN from @BotFather
+
+# 4. Start the development environment
+docker-compose -f docker-compose.dev.yml up
+```
+
+#### Development Services
+
+When you start the development environment, these services are available:
+
+- **🤖 Bot**: `http://localhost:8443` (webhook port)
+- **🗄️ Database**: `localhost:5432`
+- **🔧 Adminer**: `http://localhost:8080` (database admin interface)
+
+#### Development Commands
+
+```bash
+# Start all services
+docker-compose -f docker-compose.dev.yml up
+
+# Start in detached mode
+docker-compose -f docker-compose.dev.yml up -d
+
+# View logs
+docker-compose -f docker-compose.dev.yml logs -f
+
+# View specific service logs
+./scripts/logs.sh bot -f  # Follow bot logs
+./scripts/logs.sh db -n 100  # Show last 100 DB logs
+
+# Stop services
+docker-compose -f docker-compose.dev.yml down
+
+# Restart services
+docker-compose -f docker-compose.dev.yml restart
+
+# Access bot container shell
+docker-compose -f docker-compose.dev.yml exec bot bash
+
+# Access database directly
+docker-compose -f docker-compose.dev.yml exec db psql -U postgres -d ingress_leaderboard_dev
+
+# Seed database with sample data
+docker-compose -f docker-compose.dev.yml exec bot python scripts/db-seed.py
+```
+
+#### File Structure for Development
+
+```
+ingress-leaderboard-bot/
+├── docker-compose.dev.yml      # Development Docker configuration
+├── .env.dev                    # Development environment template
+├── scripts/                    # Development utilities
+│   ├── dev-setup.sh           # Environment setup script
+│   ├── logs.sh                # Log viewing utility
+│   ├── db-init.sql            # Database initialization
+│   └── db-seed.py             # Sample data generator
+├── data/                       # Development data (persisted)
+│   ├── logs/
+│   ├── uploads/
+│   └── backups/
+└── src/                        # Source code (mounted as volume)
+```
+
+#### Development Features
+
+- **🔄 Hot Reload**: Code changes are automatically reflected
+- **📊 Database Admin**: Adminer available at `http://localhost:8080`
+- **🐛 Debug Mode**: Enhanced logging and error reporting
+- **📝 Sample Data**: Pre-populated database for testing
+- **🛠️ Development Tools**: Additional debugging and monitoring tools
+
+#### Environment Configuration
+
+The development environment uses these default settings:
+
+```bash
+# Development Database (configured in docker-compose.dev.yml)
+DB_HOST=db
+DB_PORT=5432
+DB_NAME=ingress_leaderboard_dev
+DB_USER=postgres
+DB_PASSWORD=dev_password
+
+# Development Settings
+DEBUG=true
+LOG_LEVEL=DEBUG
+BOT_DEBUG=true
+LEADERBOARD_CACHE_TIMEOUT=60  # Shorter cache for testing
+BOT_RATE_LIMIT_PER_MINUTE=30  # Relaxed rate limiting
+```
+
+### Running in Development Mode (Manual)
+
+If you prefer to run without Docker:
+
+```bash
+# 1. Set up virtual environment
+python3 -m venv venv
+source venv/bin/activate
+
+# 2. Install dependencies
+pip install -r requirements.txt
+
+# 3. Set up database manually
+# (See Database Setup section below)
+
+# 4. Configure environment
+cp .env.example .env
+# Edit .env with your settings
+
+# 5. Enable debug mode
 export BOT_DEBUG=true
 export LOG_LEVEL=DEBUG
 
-# Run bot
+# 6. Run migrations (if using Alembic)
+alembic upgrade head
+
+# 7. Run bot
 python main.py
 ```
 

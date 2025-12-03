@@ -1,0 +1,54 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bot-service
+  namespace: ingress-leaderboard
+  labels:
+    app: ingress-leaderboard-bot
+    component: service
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9090"
+    prometheus.io/path: "/metrics"
+spec:
+  type: ClusterIP
+  ports:
+  - name: webhook
+    port: 8443
+    targetPort: 8443
+    protocol: TCP
+  - name: metrics
+    port: 9090
+    targetPort: 9090
+    protocol: TCP
+  selector:
+    app: ingress-leaderboard-bot
+    component: bot
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bot-service
+  namespace: ingress-leaderboard-staging
+  labels:
+    app: ingress-leaderboard-bot
+    component: service
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9090"
+    prometheus.io/path: "/metrics"
+spec:
+  type: ClusterIP
+  ports:
+  - name: webhook
+    port: 8443
+    targetPort: 8443
+    protocol: TCP
+  - name: metrics
+    port: 9090
+    targetPort: 9090
+    protocol: TCP
+  selector:
+    app: ingress-leaderboard-bot
+    component: bot

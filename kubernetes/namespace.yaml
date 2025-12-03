@@ -1,0 +1,16 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ingress-leaderboard
+  labels:
+    name: ingress-leaderboard
+    environment: production
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ingress-leaderboard-staging
+  labels:
+    name: ingress-leaderboard-staging
+    environment: staging

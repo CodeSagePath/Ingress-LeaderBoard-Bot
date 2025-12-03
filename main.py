@@ -19,6 +19,7 @@ from telegram.ext import (
 )
 
 from src.config.settings import get_settings, print_environment_info, validate_environment
+from src.config.production import ProductionValidator, validate_production_ready
 from src.database.connection import initialize_database
 from src.utils.logger import setup_logger
 from src.bot.handlers import register_handlers
@@ -50,6 +51,33 @@ class IngressLeaderboardBot:
             if warnings:
                 for warning in warnings:
                     logger.warning(warning)
+
+            # Production-specific validation
+            if self.settings.is_production():
+                logger.info("Running production validation checks...")
+                validator = ProductionValidator()
+                validation_result = validator.validate_production_setup(self.settings)
+
+                if not validation_result['valid']:
+                    logger.error("Production validation failed:")
+                    for error in validation_result['errors']:
+                        logger.error(f"  • {error}")
+                    if validation_result['critical_issues'] > 0:
+                        raise RuntimeError("Critical production configuration issues detected")
+
+                if validation_result['warnings']:
+                    logger.warning("Production validation warnings:")
+                    for warning in validation_result['warnings']:
+                        logger.warning(f"  • {warning}")
+
+                logger.info("Production validation completed")
+            else:
+                # Check production readiness for development environments
+                prod_check = validate_production_ready()
+                if prod_check['missing_variables']:
+                    logger.info("Missing production environment variables:")
+                    for var in prod_check['missing_variables']:
+                        logger.info(f"  • {var}")
 
             # Initialize database with migration checks
             logger.info("Initializing database connection...")

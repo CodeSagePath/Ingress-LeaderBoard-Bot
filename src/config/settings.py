@@ -59,6 +59,7 @@ class LoggingSettings:
     max_file_size_mb: int = 10
     backup_count: int = 5
     format: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    basic_mode: bool = False  # Simplified logging mode for easy setup
 
 
 @dataclass
@@ -72,31 +73,117 @@ class TelegramSettings:
     connect_timeout: int = 10
 
 
+@dataclass
+class MonitoringSettings:
+    """Monitoring and health check settings."""
+    enabled: bool = False
+    health_check_enabled: bool = False
+    metrics_enabled: bool = False
+    metrics_port: int = 9090
+    health_check_interval: int = 30
+    health_check_timeout: int = 10
+    health_check_failure_threshold: int = 3
+
+
+@dataclass
+class SecuritySettings:
+    """Security and encryption settings."""
+    cors_enabled: bool = False
+    ssl_verify: bool = True
+    secret_key: Optional[str] = None
+    encryption_key: Optional[str] = None
+    ssl_cert_path: Optional[str] = None
+    ssl_key_path: Optional[str] = None
+    ssl_ca_path: Optional[str] = None
+
+
+@dataclass
+class PerformanceSettings:
+    """Performance and caching settings."""
+    cache_enabled: bool = False
+    cache_ttl: int = 300
+    max_workers: int = 4
+    worker_timeout: int = 120
+    rate_limit_enabled: bool = False
+    rate_limit_requests_per_minute: int = 100
+    rate_limit_burst: int = 200
+
+
+@dataclass
+class BackupSettings:
+    """Backup and recovery settings."""
+    enabled: bool = False
+    schedule: str = "0 2 * * *"  # Daily at 2 AM
+    retention_days: int = 30
+    s3_bucket: Optional[str] = None
+    s3_region: Optional[str] = None
+
+
+@dataclass
+class AlertSettings:
+    """Alert and notification settings."""
+    enabled: bool = False
+    webhook_url: Optional[str] = None
+    email_enabled: bool = False
+    email_smtp_host: Optional[str] = None
+    email_smtp_port: int = 587
+    email_username: Optional[str] = None
+    email_password: Optional[str] = None
+    email_to: Optional[str] = None
+
+
+@dataclass
+class EnvironmentSettings:
+    """Environment-specific settings."""
+    name: str = "development"
+    production: bool = False
+    debug: bool = False
+
+
 class Settings:
     """Main application settings manager."""
 
-    def __init__(self, env_file: Optional[str] = None):
+    def __init__(self, env_file: Optional[str] = None, environment: Optional[str] = None):
         """
         Initialize settings from environment variables.
 
         Args:
             env_file: Optional path to .env file
+            environment: Optional environment name (development, staging, production)
         """
+        self.environment = environment or os.getenv('ENVIRONMENT', 'development').lower()
         self._load_environment(env_file)
         self._initialize_settings()
         self._validate_settings()
 
     def _load_environment(self, env_file: Optional[str]) -> None:
         """Load environment variables from .env file if provided."""
-        if env_file and os.path.exists(env_file):
+        env_files = []
+
+        # Determine which environment files to load
+        if env_file:
+            env_files.append(env_file)
+        else:
+            # Load base .env file first (if exists)
+            if os.path.exists('.env'):
+                env_files.append('.env')
+
+            # Then load environment-specific file
+            env_specific_file = f'.env.{self.environment}'
+            if os.path.exists(env_specific_file):
+                env_files.append(env_specific_file)
+
+        # Load each environment file in order
+        for env_file_path in env_files:
             try:
                 from dotenv import load_dotenv
-                load_dotenv(env_file)
-                logger.info(f"Loaded environment variables from {env_file}")
+                load_dotenv(env_file_path)
+                logger.info(f"Loaded environment variables from {env_file_path}")
             except ImportError:
                 logger.warning("python-dotenv not installed, skipping .env file loading")
+                break
             except Exception as e:
-                logger.error(f"Error loading .env file: {e}")
+                logger.error(f"Error loading {env_file_path}: {e}")
 
     def _initialize_settings(self) -> None:
         """Initialize all settings categories."""
@@ -135,7 +222,8 @@ class Settings:
             log_file=os.getenv('LOG_FILE', 'bot.log'),
             max_file_size_mb=self._get_int('LOG_MAX_FILE_SIZE_MB', 10),
             backup_count=self._get_int('LOG_BACKUP_COUNT', 5),
-            format=os.getenv('LOG_FORMAT', '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+            format=os.getenv('LOG_FORMAT', '%(asctime)s - %(name)s - %(levelname)s - %(message)s'),
+            basic_mode=self._get_bool('LOG_BASIC_MODE', False)
         )
 
         self.telegram = TelegramSettings(
@@ -145,6 +233,62 @@ class Settings:
             read_timeout=self._get_int('TELEGRAM_READ_TIMEOUT', 30),
             write_timeout=self._get_int('TELEGRAM_WRITE_TIMEOUT', 30),
             connect_timeout=self._get_int('TELEGRAM_CONNECT_TIMEOUT', 10)
+        )
+
+        # Initialize new production settings
+        self.environment_settings = EnvironmentSettings(
+            name=self.environment,
+            production=self._get_bool('PRODUCTION', self.environment == 'production'),
+            debug=self._get_bool('DEBUG', self.environment == 'development')
+        )
+
+        self.monitoring = MonitoringSettings(
+            enabled=self._get_bool('MONITORING_ENABLED', self.environment == 'production'),
+            health_check_enabled=self._get_bool('HEALTH_CHECK_ENABLED', self.environment == 'production'),
+            metrics_enabled=self._get_bool('METRICS_ENABLED', self.environment == 'production'),
+            metrics_port=self._get_int('METRICS_PORT', 9090),
+            health_check_interval=self._get_int('HEALTH_CHECK_INTERVAL', 30),
+            health_check_timeout=self._get_int('HEALTH_CHECK_TIMEOUT', 10),
+            health_check_failure_threshold=self._get_int('HEALTH_CHECK_FAILURE_THRESHOLD', 3)
+        )
+
+        self.security = SecuritySettings(
+            cors_enabled=self._get_bool('CORS_ENABLED', False),
+            ssl_verify=self._get_bool('SSL_VERIFY', True),
+            secret_key=os.getenv('SECRET_KEY'),
+            encryption_key=os.getenv('ENCRYPTION_KEY'),
+            ssl_cert_path=os.getenv('SSL_CERT_PATH'),
+            ssl_key_path=os.getenv('SSL_KEY_PATH'),
+            ssl_ca_path=os.getenv('SSL_CA_PATH')
+        )
+
+        self.performance = PerformanceSettings(
+            cache_enabled=self._get_bool('CACHE_ENABLED', self.environment == 'production'),
+            cache_ttl=self._get_int('CACHE_TTL', 600 if self.environment == 'production' else 300),
+            max_workers=self._get_int('MAX_WORKERS', 8 if self.environment == 'production' else 4),
+            worker_timeout=self._get_int('WORKER_TIMEOUT', 300 if self.environment == 'production' else 120),
+            rate_limit_enabled=self._get_bool('RATE_LIMIT_ENABLED', self.environment == 'production'),
+            rate_limit_requests_per_minute=self._get_int('RATE_LIMIT_REQUESTS_PER_MINUTE', 100),
+            rate_limit_burst=self._get_int('RATE_LIMIT_BURST', 200)
+        )
+
+        self.backup = BackupSettings(
+            enabled=self._get_bool('BACKUP_ENABLED', self.environment == 'production'),
+            schedule=os.getenv('BACKUP_SCHEDULE', '0 2 * * *'),
+            retention_days=self._get_int('BACKUP_RETENTION_DAYS', 30),
+            s3_bucket=os.getenv('BACKUP_S3_BUCKET'),
+            s3_region=os.getenv('BACKUP_S3_REGION')
+        )
+
+        self.alerts = AlertSettings(
+            enabled=self._get_bool('ALERT_ENABLED', self.environment == 'production'),
+            webhook_url=os.getenv('ALERT_WEBHOOK_URL'),
+            email_enabled=self._get_bool('ALERT_EMAIL_ENABLED', False),
+            email_smtp_host=os.getenv('ALERT_EMAIL_SMTP_HOST'),
+            email_smtp_port=self._get_int('ALERT_EMAIL_SMTP_PORT', 587),
+            email_username=os.getenv('ALERT_EMAIL_USERNAME'),
+            email_password=os.getenv('ALERT_EMAIL_PASSWORD'),
+            email_to=os.getenv('ALERT_EMAIL_TO')
         )
 
     def _build_database_url(self) -> str:
@@ -234,6 +378,11 @@ class Settings:
             Dictionary containing all settings
         """
         return {
+            'environment': {
+                'name': self.environment_settings.name,
+                'production': self.environment_settings.production,
+                'debug': self.environment_settings.debug
+            },
             'bot': {
                 'token': f"{'*' * len(self.bot.token)}" if self.bot.token else None,
                 'debug': self.bot.debug,
@@ -266,7 +415,8 @@ class Settings:
                 'log_file': self.logging.log_file,
                 'max_file_size_mb': self.logging.max_file_size_mb,
                 'backup_count': self.logging.backup_count,
-                'format': self.logging.format
+                'format': self.logging.format,
+                'basic_mode': self.logging.basic_mode
             },
             'telegram': {
                 'api_url': self.telegram.api_url,
@@ -275,6 +425,49 @@ class Settings:
                 'read_timeout': self.telegram.read_timeout,
                 'write_timeout': self.telegram.write_timeout,
                 'connect_timeout': self.telegram.connect_timeout
+            },
+            'monitoring': {
+                'enabled': self.monitoring.enabled,
+                'health_check_enabled': self.monitoring.health_check_enabled,
+                'metrics_enabled': self.monitoring.metrics_enabled,
+                'metrics_port': self.monitoring.metrics_port,
+                'health_check_interval': self.monitoring.health_check_interval,
+                'health_check_timeout': self.monitoring.health_check_timeout,
+                'health_check_failure_threshold': self.monitoring.health_check_failure_threshold
+            },
+            'security': {
+                'cors_enabled': self.security.cors_enabled,
+                'ssl_verify': self.security.ssl_verify,
+                'secret_key': f"{'*' * len(self.security.secret_key)}" if self.security.secret_key else None,
+                'encryption_key': f"{'*' * len(self.security.encryption_key)}" if self.security.encryption_key else None,
+                'ssl_cert_path': self.security.ssl_cert_path,
+                'ssl_key_path': self.security.ssl_key_path,
+                'ssl_ca_path': self.security.ssl_ca_path
+            },
+            'performance': {
+                'cache_enabled': self.performance.cache_enabled,
+                'cache_ttl': self.performance.cache_ttl,
+                'max_workers': self.performance.max_workers,
+                'worker_timeout': self.performance.worker_timeout,
+                'rate_limit_enabled': self.performance.rate_limit_enabled,
+                'rate_limit_requests_per_minute': self.performance.rate_limit_requests_per_minute,
+                'rate_limit_burst': self.performance.rate_limit_burst
+            },
+            'backup': {
+                'enabled': self.backup.enabled,
+                'schedule': self.backup.schedule,
+                'retention_days': self.backup.retention_days,
+                's3_bucket': self.backup.s3_bucket,
+                's3_region': self.backup.s3_region
+            },
+            'alerts': {
+                'enabled': self.alerts.enabled,
+                'webhook_url': self.alerts.webhook_url,
+                'email_enabled': self.alerts.email_enabled,
+                'email_smtp_host': self.alerts.email_smtp_host,
+                'email_smtp_port': self.alerts.email_smtp_port,
+                'email_username': self.alerts.email_username,
+                'email_to': self.alerts.email_to
             }
         }
 
@@ -285,7 +478,7 @@ class Settings:
         Returns:
             True if production mode, False otherwise
         """
-        return self._get_bool('PRODUCTION', False)
+        return self.environment_settings.production
 
     def is_debug(self) -> bool:
         """
@@ -294,7 +487,7 @@ class Settings:
         Returns:
             True if debug mode, False otherwise
         """
-        return self.bot.debug or self._get_bool('DEBUG', False)
+        return self.environment_settings.debug or self.bot.debug
 
     def get_cache_duration(self, cache_type: str = 'leaderboard') -> int:
         """
@@ -339,12 +532,18 @@ class Settings:
             Dictionary with environment information
         """
         return {
-            'environment': 'production' if self.is_production() else 'development',
-            'debug': self.is_debug(),
+            'environment': self.environment_settings.name,
+            'production': self.environment_settings.production,
+            'debug': self.environment_settings.debug,
             'working_directory': str(Path.cwd()),
             'python_path': str(Path(__file__).parent.parent),
             'config_loaded': bool(self.bot.token),
             'database_configured': bool(self.database.url),
+            'monitoring_enabled': self.monitoring.enabled,
+            'metrics_enabled': self.monitoring.metrics_enabled,
+            'health_check_enabled': self.monitoring.health_check_enabled,
+            'backup_enabled': self.backup.enabled,
+            'alerts_enabled': self.alerts.enabled,
             'timezone': os.getenv('TZ', 'UTC'),
             'locale': os.getenv('LC_ALL', 'en_US.UTF-8')
         }

@@ -1,0 +1,125 @@
+name: CD Pipeline
+
+on:
+  workflow_run:
+    workflows: ["CI Pipeline"]
+    types:
+      - completed
+    branches: [main]
+
+env:
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    environment:
+      name: production
+      url: https://your-domain.com
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'v1.28.0'
+
+    - name: Configure kubectl
+      run: |
+        echo "${{ secrets.KUBE_CONFIG_PRODUCTION }}" | base64 -d > kubeconfig
+        export KUBECONFIG=kubeconfig
+
+    - name: Get latest image tag
+      id: image
+      run: |
+        # Get the latest image tag from Docker Hub or registry
+        IMAGE_TAG=$(curl -s "https://registry.hub.docker.com/v2/repositories/your-docker-hub/ingress-leaderboard-bot/tags?page_size=1" | jq -r '.results[0].name')
+        echo "image-tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+        echo "Latest image tag: $IMAGE_TAG"
+
+    - name: Create backup before deployment
+      run: |
+        export KUBECONFIG=kubeconfig
+        # Create database backup before deploying
+        kubectl exec -n ingress-leaderboard deployment/postgres -- pg_dump -U postgres ingress_leaderboard_prod > backup-$(date +%Y%m%d-%H%M%S).sql
+        echo "Database backup created"
+
+    - name: Deploy to Kubernetes
+      run: |
+        export KUBECONFIG=kubeconfig
+
+        # Update image tag in deployment
+        sed -i "s|ingress-leaderboard-bot:latest|your-docker-hub/ingress-leaderboard-bot:${{ steps.image.outputs.image-tag }}|g" kubernetes/deployment.yaml
+
+        # Apply manifests
+        kubectl apply -f kubernetes/deployment.yaml -n ingress-leaderboard
+        kubectl apply -f kubernetes/hpa.yaml -n ingress-leaderboard
+
+    - name: Wait for deployment
+      run: |
+        export KUBECONFIG=kubeconfig
+        kubectl rollout status deployment/ingress-leaderboard-bot -n ingress-leaderboard --timeout=600s
+
+    - name: Run smoke tests
+      run: |
+        export KUBECONFIG=kubeconfig
+
+        # Get service URL
+        SERVICE_URL=$(kubectl get ingress bot-ingress -n ingress-leaderboard -o jsonpath='{.spec.rules[0].host}')
+
+        # Health check
+        echo "Checking health endpoint..."
+        curl -f "https://$SERVICE_URL/health" || exit 1
+
+        # Metrics check
+        echo "Checking metrics endpoint..."
+        curl -f "https://metrics.$SERVICE_URL/metrics" || exit 1
+
+        echo "Smoke tests passed!"
+
+    - name: Verify deployment
+      run: |
+        export KUBECONFIG=kubeconfig
+        kubectl get pods -n ingress-leaderboard
+        kubectl get services -n ingress-leaderboard
+        kubectl get ingress -n ingress-leaderboard
+        kubectl get hpa -n ingress-leaderboard
+
+    - name: Notify deployment
+      if: success()
+      run: |
+        echo "🚀 Production deployment completed successfully!"
+        echo "Deployed image: your-docker-hub/ingress-leaderboard-bot:${{ steps.image.outputs.image-tag }}"
+
+  rollback:
+    name: Rollback on Failure
+    runs-on: ubuntu-latest
+    needs: [deploy-production]
+    if: failure()
+    environment:
+      name: production
+    steps:
+    - name: Set up kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'v1.28.0'
+
+    - name: Configure kubectl
+      run: |
+        echo "${{ secrets.KUBE_CONFIG_PRODUCTION }}" | base64 -d > kubeconfig
+        export KUBECONFIG=kubeconfig
+
+    - name: Rollback deployment
+      run: |
+        export KUBECONFIG=kubeconfig
+        echo "🔄 Rolling back deployment..."
+        kubectl rollout undo deployment/ingress-leaderboard-bot -n ingress-leaderboard
+        kubectl rollout status deployment/ingress-leaderboard-bot -n ingress-leaderboard --timeout=300s
+
+    - name: Notify rollback
+      if: success()
+      run: |
+        echo "⚠️ Deployment failed and rolled back successfully!"

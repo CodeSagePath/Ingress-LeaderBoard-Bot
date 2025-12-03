@@ -365,3 +365,72 @@ def monitor_performance(level: str = "INFO"):
 
         return wrapper
     return decorator
+
+
+def simple_setup_logger(settings: Optional[object] = None) -> logging.Logger:
+    """
+    Simple logger setup function that provides an easy interface while maintaining
+    production safety features like file rotation.
+
+    This function addresses the common logging setup pattern while preserving
+    the robust features of the existing system.
+
+    Args:
+        settings: Optional settings object. If not provided, will use Settings()
+
+    Returns:
+        Configured logger instance for the IngressLeaderboardBot
+
+    Example:
+        # Simple usage - just get a configured logger
+        from src.utils.logger import simple_setup_logger
+        logger = simple_setup_logger()
+        logger.info("Bot started successfully")
+
+        # With custom settings
+        from src.config.settings import Settings
+        custom_settings = Settings()
+        custom_settings.logging.basic_mode = True
+        logger = simple_setup_logger(custom_settings)
+    """
+    # Import settings here to avoid circular imports
+    if settings is None:
+        from src.config.settings import get_settings
+        settings = get_settings()
+
+    # Determine if we should use basic mode
+    is_basic_mode = getattr(settings.logging, 'basic_mode', False)
+
+    if is_basic_mode:
+        # Basic mode: simplified configuration but still with file rotation
+        return setup_logger(
+            level=settings.logging.level,
+            log_file=settings.logging.log_file,
+            max_file_size_mb=settings.logging.max_file_size_mb,
+            backup_count=settings.logging.backup_count,
+            format_string="%(asctime)s - %(levelname)s - %(message)s"  # Simpler format
+        )
+    else:
+        # Full mode: use the comprehensive existing setup
+        return setup_logger(
+            level=settings.logging.level,
+            log_file=settings.logging.log_file,
+            max_file_size_mb=settings.logging.max_file_size_mb,
+            backup_count=settings.logging.backup_count,
+            format_string=settings.logging.format
+        )
+
+
+def get_bot_logger() -> logging.Logger:
+    """
+    Get the main bot logger instance.
+
+    Returns:
+        Logger instance configured for the IngressLeaderboardBot
+
+    Example:
+        from src.utils.logger import get_bot_logger
+        logger = get_bot_logger()
+        logger.info("Processing command from user")
+    """
+    return logging.getLogger('IngressLeaderboardBot')

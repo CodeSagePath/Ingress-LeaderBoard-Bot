@@ -1,0 +1,74 @@
+name: Dependency Update
+
+on:
+  schedule:
+    # Run every Monday at 2 AM UTC
+    - cron: '0 2 * * 1'
+  workflow_dispatch:
+
+jobs:
+  update-dependencies:
+    name: Update Dependencies
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install pip-tools
+      run: pip install pip-tools
+
+    - name: Update requirements.txt
+      run: |
+        # Compile new requirements
+        pip-compile requirements.in --upgrade
+
+        # Check if requirements.txt changed
+        if git diff --quiet requirements.txt; then
+          echo "No dependency updates found"
+          exit 0
+        fi
+
+    - name: Test updated dependencies
+      run: |
+        # Install updated dependencies
+        pip install -r requirements.txt
+
+        # Run basic tests to ensure compatibility
+        python -c "import telegram; print('telegram version:', telegram.__version__)"
+        python -c "import sqlalchemy; print('SQLAlchemy version:', sqlalchemy.__version__)"
+        python -c "import psycopg2; print('psycopg2 imported successfully')"
+
+    - name: Create Pull Request
+      uses: peter-evans/create-pull-request@v5
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        commit-message: "chore: update Python dependencies"
+        title: "chore: update Python dependencies"
+        body: |
+          ## Automated Dependency Update
+
+          This PR updates Python dependencies to their latest versions.
+
+          ### Changes
+          - Updated `requirements.txt` with latest package versions
+          - All dependencies tested for basic compatibility
+
+          ### Next Steps
+          1. Review the dependency changes
+          2. Run the full test suite
+          3. Merge if all tests pass
+
+          ---
+          *This PR was created automatically by the dependency update workflow.*
+        branch: dependency-updates
+        delete-branch: true
+        labels: |
+          dependencies
+          automated
