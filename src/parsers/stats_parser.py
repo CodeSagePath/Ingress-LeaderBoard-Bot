@@ -10,6 +10,7 @@ import time
 from typing import Dict, List, Optional, Union, Tuple
 
 from ..config.stats_config import STATS_DEFINITIONS, get_stat_by_idx, validate_faction
+from ..monitoring.error_tracker import parsing_error_tracking
 
 
 class StatsParser:
@@ -19,6 +20,7 @@ class StatsParser:
         self.stats_definitions = STATS_DEFINITIONS
         self.minimum_stats_count = 12
 
+    @parsing_error_tracking("main")
     def parse(self, stats_text: str) -> Dict:
         """
         Main parsing entry point.
@@ -89,6 +91,7 @@ class StatsParser:
 
         return any(text.startswith(header) for header in headers)
 
+    @parsing_error_tracking("tabulated")
     def parse_tabulated(self, stats_text: str) -> Dict:
         """
         Parse tab-separated stats format.
@@ -157,6 +160,7 @@ class StatsParser:
 
         return result
 
+    @parsing_error_tracking("telegram")
     def parse_telegram(self, stats_text: str) -> Dict:
         """
         Parse space-separated stats format from Telegram.

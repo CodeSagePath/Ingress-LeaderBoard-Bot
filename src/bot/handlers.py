@@ -23,6 +23,7 @@ from ..database.models import (
 from ..database.stats_database import StatsDatabase
 from ..features.progress import ProgressTracker
 from ..config.stats_config import get_stat_by_idx, format_stat_value, get_leaderboard_stats
+from ..monitoring.error_tracker import error_tracking, command_error_tracking, database_error_tracking
 
 
 logger = logging.getLogger(__name__)
@@ -49,6 +50,7 @@ class BotHandlers:
             'trekker': 13,        # Distance Walked
         }
 
+    @command_error_tracking("start")
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """
         Handle /start command - Welcome message and basic instructions.
@@ -92,6 +94,7 @@ Ready to start? Just paste your stats!
                 "Welcome! I can help track your Ingress stats. Use /help for more information."
             )
 
+    @command_error_tracking("help")
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """
         Handle /help command - Detailed help information.
@@ -159,6 +162,7 @@ If you encounter any problems, try submitting your stats again or contact the bo
                 "Use /start to get started and /leaderboard to view stats."
             )
 
+    @command_error_tracking("mystats")
     async def mystats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """
         Handle /mystats command - Show user's personal stats and history.
@@ -282,6 +286,7 @@ Keep your stats up to date to improve your leaderboard rankings!
                 "⚠️ Error retrieving your stats. Please try again later."
             )
 
+    @command_error_tracking("leaderboard")
     async def leaderboard_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """
         Handle /leaderboard command - Show leaderboard category selection.
@@ -387,6 +392,7 @@ Compare your performance within your faction or across all agents!
             logger.error(f"Error sending faction leaderboard menu: {e}")
             await update.message.reply_text("Use /help for available commands.")
 
+    @error_tracking(error_type="stats_parsing", component="bot_handlers")
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """
         Handle regular text messages - likely stats submissions.
@@ -476,6 +482,7 @@ Compare your performance within your faction or across all agents!
                 "❌ An error occurred while processing your stats. Please try again."
             )
 
+    @error_tracking(error_type="leaderboard_callback", component="bot_handlers")
     async def handle_leaderboard_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """
         Handle leaderboard category selection callbacks.
@@ -532,6 +539,7 @@ Compare your performance within your faction or across all agents!
                 "⚠️ Error loading leaderboard. Please try again."
             )
 
+    @database_error_tracking("save_stats")
     async def _save_stats_to_database(self, user, parsed_data: Dict, context: ContextTypes.DEFAULT_TYPE) -> Dict:
         """
         Save parsed stats to database.

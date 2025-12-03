@@ -16,6 +16,7 @@ from .models import (
     ProgressSnapshot, LeaderboardCache
 )
 from .connection import DatabaseConnection
+from ..monitoring.error_tracker import database_error_tracking
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,7 @@ class StatsDatabase:
         """
         self.db = db_connection
 
+    @database_error_tracking("save_stats")
     def save_stats(self, telegram_user_id: int, parsed_stats: Dict,
                    user_info: Optional[Dict] = None) -> Dict[str, Any]:
         """
@@ -458,6 +460,7 @@ class StatsDatabase:
             logger.error(f"Error retrieving latest stats for {agent_name}: {e}")
             return None
 
+    @database_error_tracking("get_leaderboard")
     def get_leaderboard_data(self, stat_idx: int, faction: Optional[str] = None,
                            period: str = 'all_time', limit: int = 20) -> List[Dict]:
         """

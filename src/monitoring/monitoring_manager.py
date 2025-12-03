@@ -6,7 +6,7 @@ Provides a unified interface for all monitoring functionality.
 
 import asyncio
 import logging
-from typing import Any, Optional
+from typing import Any, Optional, Dict
 from aiohttp import web
 import json
 

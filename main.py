@@ -37,6 +37,7 @@ class IngressLeaderboardBot:
         self.settings = None
         self.application = None
         self.database = None
+        self.monitoring_manager = None
         self.running = False
 
     async def initialize(self) -> None:
@@ -107,9 +108,20 @@ class IngressLeaderboardBot:
             logger.info("Registering bot handlers...")
             register_handlers(self.application)
 
-            # Store database reference for handlers
+            # Initialize monitoring system AFTER database setup
+            if self.settings.monitoring.enabled:
+                logger.info("Initializing monitoring system...")
+                from src.monitoring.monitoring_manager import MonitoringManager
+                self.monitoring_manager = MonitoringManager(self.settings)
+                logger.info(f"Monitoring system initialized (port: {self.settings.monitoring.metrics_port})")
+            else:
+                logger.info("Monitoring system is disabled")
+
+            # Store references for handlers
             self.application.bot_data['db_connection'] = self.database
             self.application.bot_data['settings'] = self.settings
+            if self.monitoring_manager:
+                self.application.bot_data['monitoring_manager'] = self.monitoring_manager
 
             logger.info("Bot initialization completed successfully")
 
@@ -156,6 +168,13 @@ class IngressLeaderboardBot:
         try:
             logger.info("Starting Ingress Prime Leaderboard Bot...")
 
+            # Start monitoring server FIRST (before bot operations)
+            if self.monitoring_manager:
+                await self.monitoring_manager.start()
+                logger.info(f"Monitoring server started on port {self.settings.monitoring.metrics_port}")
+                logger.info(f"Health endpoint: http://localhost:{self.settings.monitoring.metrics_port}/health")
+                logger.info(f"Metrics endpoint: http://localhost:{self.settings.monitoring.metrics_port}/metrics")
+
             # Choose start method based on configuration
             if self.settings.bot.webhook_url:
                 await self._start_with_webhook()
@@ -166,6 +185,12 @@ class IngressLeaderboardBot:
             logger.info("Bot started successfully")
 
         except Exception as e:
+            # Stop monitoring if bot start fails
+            if self.monitoring_manager:
+                try:
+                    await self.monitoring_manager.stop()
+                except Exception as monitor_error:
+                    logger.error(f"Failed to stop monitoring server during cleanup: {monitor_error}")
             logger.error(f"Failed to start bot: {e}")
             raise
 
@@ -214,6 +239,11 @@ class IngressLeaderboardBot:
 
             if self.database:
                 self.database.close()
+
+            # Stop monitoring server LAST
+            if self.monitoring_manager:
+                await self.monitoring_manager.stop()
+                logger.info("Monitoring server stopped")
 
             logger.info("Bot stopped successfully")
 
