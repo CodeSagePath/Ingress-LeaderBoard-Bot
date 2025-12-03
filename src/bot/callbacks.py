@@ -225,6 +225,141 @@ Select a category to view the leaderboard:
 
         logger.info(f"Displayed faction-filtered menu for: {faction_display}")
 
+    async def handle_faction_leaderboard_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """
+        Handle faction-specific leaderboard callbacks from the factionleaderboard command.
+
+        This method processes callbacks that include both faction and stat information
+        to generate filtered leaderboards.
+
+        Args:
+            update: Telegram update containing the callback query
+            context: Bot context containing database session
+        """
+        query = update.callback_query
+        await query.answer()
+
+        callback_data = query.data
+        logger.debug(f"Processing faction leaderboard callback: {callback_data}")
+
+        try:
+            # Parse callback data format: 'lb_{stat_idx}_{faction}'
+            if callback_data.startswith('lb_'):
+                parts = callback_data.split('_')
+                if len(parts) >= 3:
+                    stat_idx_str = parts[1]
+                    faction_type = parts[2]
+
+                    # Convert stat index to integer
+                    try:
+                        stat_idx = int(stat_idx_str)
+                    except ValueError:
+                        # Try to map from descriptive names
+                        stat_idx = self.STAT_MAPPING.get(stat_idx_str.lower())
+                        if stat_idx is None:
+                            await query.edit_message_text("❌ Invalid stat category selected.")
+                            return
+
+                    # Map faction type to full name
+                    faction_mapping = {
+                        'enl': 'Enlightened',
+                        'res': 'Resistance',
+                        'all': None
+                    }
+                    faction = faction_mapping.get(faction_type.lower())
+                    faction_display = faction or 'All Factions'
+
+                    # Get database session from context
+                    db_connection = context.bot_data.get('db_connection')
+                    if not db_connection:
+                        await query.edit_message_text("⚠️ Database error. Please try again later.")
+                        return
+
+                    # Initialize leaderboard generator with session if needed
+                    if not self.lb_generator:
+                        from ..leaderboard.generator import LeaderboardGenerator
+                        self.lb_generator = LeaderboardGenerator(db_connection.get_session())
+
+                    # Generate faction-specific leaderboard
+                    leaderboard = self.lb_generator.generate(
+                        stat_idx=stat_idx,
+                        limit=20,
+                        faction=faction,
+                        use_cache=True
+                    )
+
+                    if 'error' in leaderboard:
+                        await query.edit_message_text(
+                            f"⚠️ Error generating {faction_display} leaderboard: {leaderboard['error']}"
+                        )
+                        return
+
+                    # Get stat definition for formatting
+                    stat_def = get_stat_by_idx(stat_idx)
+                    if not stat_def:
+                        await query.edit_message_text("❌ This stat is not available for leaderboards.")
+                        return
+
+                    # Format the leaderboard for display
+                    formatted_text = self.lb_formatter.format_leaderboard(
+                        leaderboard_data=leaderboard,
+                        category=f"{stat_def['name']} ({faction_display})"
+                    )
+
+                    # Add navigation buttons
+                    reply_markup = self._create_faction_leaderboard_navigation(stat_idx, faction_type)
+
+                    await query.edit_message_text(
+                        formatted_text,
+                        parse_mode='HTML',
+                        reply_markup=reply_markup
+                    )
+
+                    logger.info(f"Displayed {faction_display} leaderboard for stat {stat_idx} ({stat_def['name']})")
+                else:
+                    # Handle regular faction filter without stat
+                    await self._handle_faction_filter(query, callback_data, context)
+            else:
+                # Handle regular faction filter
+                await self._handle_faction_filter(query, callback_data, context)
+
+        except Exception as e:
+            logger.error(f"Error processing faction leaderboard callback {callback_data}: {e}")
+            await query.edit_message_text(
+                "⚠️ An error occurred while processing your request. Please try again."
+            )
+
+    def _create_faction_leaderboard_navigation(self, stat_idx: int, faction_type: str) -> InlineKeyboardMarkup:
+        """
+        Create navigation markup for faction leaderboards.
+
+        Args:
+            stat_idx: The stat index for the current leaderboard
+            faction_type: The faction type ('enl', 'res', 'all')
+
+        Returns:
+            InlineKeyboardMarkup with navigation buttons
+        """
+        faction_emoji = '💚' if faction_type == 'enl' else '💙' if faction_type == 'res' else '🌐'
+        faction_suffix = f'_{faction_type}' if faction_type != 'all' else ''
+
+        keyboard = [
+            [
+                InlineKeyboardButton("📅 All Time", callback_data=f'lb_{stat_idx}{faction_suffix}'),
+                InlineKeyboardButton("📊 Monthly", callback_data=f'period_monthly_lb_{stat_idx}{faction_suffix}')
+            ],
+            [
+                InlineKeyboardButton("📈 Weekly", callback_data=f'period_weekly_lb_{stat_idx}{faction_suffix}'),
+                InlineKeyboardButton("⏰ Daily", callback_data=f'period_daily_lb_{stat_idx}{faction_suffix}')
+            ],
+            [
+                InlineKeyboardButton(f"{faction_emoji} Back to Faction Menu", callback_data=f'faction_{faction_type}'),
+                InlineKeyboardButton("🌐 All Factions", callback_data='faction_all')
+            ]
+        ]
+
+        return InlineKeyboardMarkup(keyboard)
+
     async def _handle_period_selection(self, query, callback_data: str, context: ContextTypes.DEFAULT_TYPE) -> None:
         """
         Handle time period selection for leaderboards.

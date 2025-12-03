@@ -21,6 +21,7 @@ from ..database.models import (
     get_agent_by_telegram_id, get_latest_submission_for_agent, get_leaderboard_for_stat
 )
 from ..database.stats_database import StatsDatabase
+from ..features.progress import ProgressTracker
 from ..config.stats_config import get_stat_by_idx, format_stat_value, get_leaderboard_stats
 
 
@@ -204,6 +205,36 @@ If you encounter any problems, try submitting your stats again or contact the bo
                 StatsSubmission.submission_date >= datetime.now().date() - timedelta(days=30)
             ).count()
 
+            # Calculate progress for the agent
+            top_improvements = []
+            try:
+                progress_tracker = ProgressTracker(session)
+                progress_data = progress_tracker.calculate_progress(agent.agent_name, days=30)
+
+                # Extract top improvements
+                if 'progress' in progress_data:
+                    progress_stats = progress_data['progress']
+                    # Sort by improvement amount (descending)
+                    sorted_progress = sorted(
+                        progress_stats.items(),
+                        key=lambda x: x[1].get('improvement', 0),
+                        reverse=True
+                    )
+
+                    # Get top 5 improvements
+                    for stat_idx, stat_info in sorted_progress[:5]:
+                        improvement = stat_info.get('improvement', 0)
+                        if improvement > 0:
+                            stat_def = get_stat_by_idx(stat_idx)
+                            if stat_def:
+                                stat_name = stat_def['name']
+                                formatted_value = format_stat_value(improvement, stat_idx)
+                                top_improvements.append((stat_name, formatted_value))
+
+            except Exception as e:
+                logger.error(f"Progress calculation failed for agent {agent.agent_name}: {e}")
+                top_improvements = []
+
             # Format the response
             stats_text = f"""
 👤 <b>Your Agent Stats</b>
@@ -215,7 +246,22 @@ If you encounter any problems, try submitting your stats again or contact the bo
 
 📅 <b>Last Submission:</b> {submission_date.strftime('%Y-%m-%d') if submission_date else 'Unknown'}
 📈 <b>Recent Submissions:</b> {recent_submissions} (30 days)
+"""
 
+            # Add progress section if available
+            if top_improvements:
+                stats_text += f"""
+📊 <b>Top Improvements (30 days):</b>
+"""
+                for i, (stat_name, formatted_value) in enumerate(top_improvements, 1):
+                    stats_text += f"{i}. <b>{stat_name}</b>: +{formatted_value}\n"
+            else:
+                stats_text += """
+📊 <b>Top Improvements (30 days):</b>
+<i>No significant progress tracked yet</i>
+"""
+
+            stats_text += """
 💡 <b>Quick Actions:</b>
 • Submit new stats: Just paste them here
 • View leaderboards: /leaderboard
@@ -295,6 +341,50 @@ Select a category to view the leaderboard:
             logger.info(f"Leaderboard command from user {update.effective_user.id}")
         except TelegramError as e:
             logger.error(f"Error sending leaderboard menu: {e}")
+            await update.message.reply_text("Use /help for available commands.")
+
+    async def faction_leaderboard_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """
+        Handle /factionleaderboard command - Show faction-specific leaderboard selection.
+        """
+        # Create inline keyboard for faction selection
+        keyboard = [
+            [
+                InlineKeyboardButton("💚 Enlightened", callback_data='faction_enl'),
+                InlineKeyboardButton("💙 Resistance", callback_data='faction_res')
+            ],
+            [
+                InlineKeyboardButton("🌐 All Factions", callback_data='faction_all')
+            ]
+        ]
+
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        faction_text = """
+🌐 <b>Faction Leaderboards</b>
+
+Select a faction to view leaderboards:
+
+💚 <b>Enlightened</b> - View Enlightened agents only
+💙 <b>Resistance</b> - View Resistance agents only
+🌐 <b>All Factions</b> - View all agents together
+
+After selecting a faction, you'll be able to choose specific stats categories like:
+• Lifetime AP • Unique Portals • Links Created
+• Control Fields • XM Recharged • And many more!
+
+Compare your performance within your faction or across all agents!
+        """
+
+        try:
+            await update.message.reply_text(
+                faction_text,
+                reply_markup=reply_markup,
+                parse_mode=ParseMode.HTML
+            )
+            logger.info(f"Faction leaderboard command from user {update.effective_user.id}")
+        except TelegramError as e:
+            logger.error(f"Error sending faction leaderboard menu: {e}")
             await update.message.reply_text("Use /help for available commands.")
 
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -812,6 +902,17 @@ def register_handlers(application) -> None:
     application.add_handler(CommandHandler("help", handlers.help_command))
     application.add_handler(CommandHandler("mystats", handlers.mystats_command))
     application.add_handler(CommandHandler("leaderboard", handlers.leaderboard_command))
+    application.add_handler(CommandHandler("factionleaderboard", handlers.faction_leaderboard_command))
+
+    # Import and register progress tracking handlers
+    try:
+        from .progress_handlers import register_progress_handlers
+        register_progress_handlers(application)
+        logger.info("Progress tracking handlers registered successfully")
+    except ImportError as e:
+        logger.warning(f"Could not register progress handlers: {e}")
+    except Exception as e:
+        logger.error(f"Error registering progress handlers: {e}")
 
     # Message handler for stats submission
     application.add_handler(

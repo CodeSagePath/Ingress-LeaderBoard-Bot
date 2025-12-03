@@ -535,6 +535,54 @@ class LeaderboardGenerator:
             logger.error(f"Error calculating faction summary: {e}")
             return {'error': f'Database error: {str(e)}'}
 
+    def get_leaderboard_for_faction(self, stat_idx: int, limit: int = 20,
+                                    faction: Optional[str] = None,
+                                    period: str = 'all_time') -> Dict:
+        """
+        Generate faction-specific leaderboard.
+
+        Args:
+            stat_idx: Index of the stat to generate leaderboard for
+            limit: Maximum number of entries to return
+            faction: Filter by faction ('Enlightened', 'Resistance', or None for all)
+            period: Time period ('all_time', 'monthly', 'weekly', 'daily')
+
+        Returns:
+            Dictionary containing faction-specific leaderboard data
+        """
+        return self.generate(stat_idx, limit, faction, period, use_cache=True)
+
+    def get_faction_summary(self, stat_idx: int) -> Dict:
+        """
+        Get faction participation statistics for a stat.
+
+        Args:
+            stat_idx: Index of the stat to analyze
+
+        Returns:
+            Dictionary with faction participation statistics
+        """
+        return self.get_action_summary(stat_idx)
+
+    def get_top_agents_by_faction(self, stat_idx: int, faction: str,
+                                 limit: int = 20, period: str = 'all_time') -> Dict:
+        """
+        Get top agents filtered by specific faction.
+
+        Args:
+            stat_idx: Index of the stat to generate leaderboard for
+            faction: Faction to filter by ('Enlightened' or 'Resistance')
+            limit: Maximum number of entries to return
+            period: Time period ('all_time', 'monthly', 'weekly', 'daily')
+
+        Returns:
+            Dictionary containing top agents from the specified faction
+        """
+        if faction not in ['Enlightened', 'Resistance']:
+            return {'error': f'Invalid faction: {faction}. Must be Enlightened or Resistance'}
+
+        return self.generate(stat_idx, limit, faction, period, use_cache=True)
+
     def clear_expired_cache(self) -> int:
         """
         Remove expired cache entries.
