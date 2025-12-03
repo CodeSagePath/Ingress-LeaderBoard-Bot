@@ -20,6 +20,7 @@ from ..database.models import (
     User, Agent, StatsSubmission, AgentStat, FactionChange, ProgressSnapshot,
     get_agent_by_telegram_id, get_latest_submission_for_agent, get_leaderboard_for_stat
 )
+from ..database.stats_database import StatsDatabase
 from ..config.stats_config import get_stat_by_idx, format_stat_value, get_leaderboard_stats
 
 
@@ -29,9 +30,10 @@ logger = logging.getLogger(__name__)
 class BotHandlers:
     """Main handler class for all bot commands and messages."""
 
-    def __init__(self):
+    def __init__(self, db_connection=None):
         self.parser = StatsParser()
         self.validator = StatsValidator()
+        self.stats_db = StatsDatabase(db_connection) if db_connection else None
 
         # Mapping of callback data to stat indices for leaderboard categories
         # This matches the task requirements for stat identification
@@ -331,7 +333,7 @@ Select a category to view the leaderboard:
                 await processing_msg.edit_text(f"❌ Invalid stats:\n\n{error_text}")
                 return
 
-            # Save to database (would need session implementation)
+            # Save to database using new StatsDatabase class
             save_result = await self._save_stats_to_database(
                 update.effective_user,
                 parsed_data,
@@ -799,7 +801,11 @@ Select a category to view the leaderboard:
 
 def register_handlers(application) -> None:
     """Register all handlers with the application."""
-    handlers = BotHandlers()
+    # Get database connection from application data
+    db_connection = application.bot_data.get('db_connection')
+
+    # Initialize handlers with database connection
+    handlers = BotHandlers(db_connection)
 
     # Command handlers
     application.add_handler(CommandHandler("start", handlers.start_command))

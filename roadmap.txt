@@ -789,18 +789,6 @@ python  # src/leaderboard/formatters.py
           
           return "(None)"
 
-
-
-
-
-
-
-
-
-
-
-
-          
 Phase 6: Database Operations (Week 5)
 Task 6.1: Implement Database Layer
 
@@ -980,6 +968,27 @@ stat_data['value']
       query += " ORDER BY ss.submission_date DESC"
       
       return self.db.execute_query(query, params)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 ### Phase 7: Additional Features (Week 6)
 

@@ -51,11 +51,20 @@ class IngressLeaderboardBot:
                 for warning in warnings:
                     logger.warning(warning)
 
-            # Initialize database
+            # Initialize database with migration checks
             logger.info("Initializing database connection...")
+            from src.database.migrations import check_and_run_migrations
+
+            # Run any pending migrations first
+            migration_result = check_and_run_migrations(auto_run=True)
+            if migration_result.get("status") == "failed":
+                logger.error(f"Database migrations failed: {migration_result.get('error', 'Unknown error')}")
+                return False
+
+            # Then initialize database connection
             self.database = initialize_database(
                 database_url=self.settings.database.url,
-                create_tables=True
+                create_tables=False  # Already handled by migrations
             )
 
             # Test database connection
