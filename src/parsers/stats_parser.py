@@ -18,7 +18,7 @@ class StatsParser:
 
     def __init__(self):
         self.stats_definitions = STATS_DEFINITIONS
-        self.minimum_stats_count = 12
+        self.minimum_stats_count = 6  # At least: time span, agent, faction, date, time, level
 
     @parsing_error_tracking("main")
     def parse(self, stats_text: str) -> Dict:
@@ -184,8 +184,16 @@ class StatsParser:
         if len(values) < 5:
             return {'error': 'Not enough values in stats line', 'error_code': 5}
 
-        # Check for ALL TIME
-        if values[0] != 'ALL TIME':
+        # Find date position (may be multi-word)
+        date_position = self._find_date_position(values)
+        if date_position == -1:
+            return {'error': 'Could not find date in stats', 'error_code': 6}
+
+        # Consolidate time span if it spans multiple words (e.g., "ALL" "TIME" -> "ALL TIME")
+        values = self._consolidate_time_span(values, date_position)
+
+        # Check for ALL TIME (must be done after consolidation)
+        if values[0].upper() != 'ALL TIME':
             return {'error': 'Not ALL TIME stats', 'error_code': 4}
 
         result = {
@@ -195,59 +203,33 @@ class StatsParser:
             'stats_count': len(values)
         }
 
-        # Parse headers and map to stat definitions
-        headers = header_line.split(' ')
+        # Parse headers using token-based approach for multi-word stat names
+        parsed_headers = self._parse_header_line(header_line)
 
-        # Find date position (may be multi-word)
-        date_position = self._find_date_position(values)
-        if date_position == -1:
-            return {'error': 'Could not find date in stats', 'error_code': 6}
-
-        # Consolidate time span if it spans multiple words
-        values = self._consolidate_time_span(values, date_position)
-
-        # Map headers to values
-        header_idx = 0
-        value_idx = 0
-
-        while header_idx < len(headers) and value_idx < len(values):
-            header = headers[header_idx].strip()
-            if not header:
-                header_idx += 1
-                continue
-
-            # Handle multi-word headers (like date format)
-            if header == 'Date' and header_idx + 1 < len(headers):
-                if headers[header_idx + 1] == '(yyyy-mm-dd)':
-                    header = 'Date (yyyy-mm-dd)'
-                    header_idx += 1
-            elif header == 'Time' and header_idx + 1 < len(headers):
-                if headers[header_idx + 1] == '(hh:mm:ss)':
-                    header = 'Time (hh:mm:ss)'
-                    header_idx += 1
+        # Map parsed headers to values
+        for i, header_name in enumerate(parsed_headers):
+            if i >= len(values):
+                break
 
             # Find matching stat definition
-            stat_def = self._find_stat_by_name(header)
+            stat_def = self._find_stat_by_name(header_name)
             if stat_def:
                 result[stat_def['idx']] = {
                     'idx': stat_def['idx'],
-                    'value': values[value_idx],
+                    'value': values[i],
                     'name': stat_def['name'],
                     'type': stat_def['type'],
-                    'original_pos': header_idx
+                    'original_pos': i
                 }
             else:
                 # Store unknown stat
-                result[f'unknown_{header_idx}'] = {
+                result[f'unknown_{i}'] = {
                     'idx': -1,
-                    'value': values[value_idx],
-                    'name': header,
+                    'value': values[i],
+                    'name': header_name,
                     'type': 'U',
-                    'original_pos': header_idx
+                    'original_pos': i
                 }
-
-            header_idx += 1
-            value_idx += 1
 
         # Validate required fields
         validation_result = self._validate_required_fields(result)
@@ -286,6 +268,57 @@ class StatsParser:
 
         return values
 
+    def _parse_header_line(self, header_line: str) -> List[str]:
+        """
+        Parse header line into individual stat names, handling multi-word names.
+
+        Uses a token-based approach: replace known stat names with tokens,
+        then map tokens back to stat names.
+
+        Args:
+            header_line: The header line from the stats text
+
+        Returns:
+            List of stat names in order
+        """
+        # Build list of known stat names, sorted by length (longer first)
+        # This ensures "Lifetime AP" matches before "AP"
+        stat_names = [stat_def['name'] for stat_def in self.stats_definitions]
+        stat_names = sorted(stat_names, key=len, reverse=True)
+
+        # Create a copy of header line to tokenize
+        tokenized = header_line
+        token_map = {}
+
+        # Replace each known stat name with a unique token
+        for i, name in enumerate(stat_names):
+            token = f"__STAT_{i}__"
+            if name in tokenized:
+                tokenized = tokenized.replace(name, token)
+                token_map[token] = name
+
+        # Split by spaces to get tokens/remaining words
+        parts = tokenized.split()
+
+        # Convert tokens back to stat names
+        result = []
+        i = 0
+        while i < len(parts):
+            part = parts[i]
+            if part.startswith('__STAT_') and part.endswith('__'):
+                # This is a token - map back to stat name
+                if part in token_map:
+                    result.append(token_map[part])
+                else:
+                    result.append(part)  # Fallback
+            else:
+                # Try to combine with next parts if it could be a multi-word name
+                # For unrecognized stats, treat each word as separate for now
+                result.append(part)
+            i += 1
+
+        return result
+
     def _find_date_position(self, values: List[str]) -> int:
         """
         Find the position of the date in values array.
@@ -306,19 +339,27 @@ class StatsParser:
         """
         Consolidate time span if it spans multiple words (should be 'ALL TIME').
 
+        For space-separated format, the first two words are typically "ALL" and "TIME"
+        which need to be joined into "ALL TIME" as the time span value.
+
         Args:
             values: List of values
             date_position: Position where date starts
 
         Returns:
-            Consolidated values list
+            Consolidated values list with proper field alignment
         """
-        if date_position <= 1:
+        if len(values) < 2:
             return values
 
-        # Consolidate everything before date into time span
-        time_span = ' '.join(values[:date_position])
-        return [time_span] + values[date_position:]
+        # Check if first two words form "ALL TIME"
+        if values[0].upper() == 'ALL' and values[1].upper() == 'TIME':
+            # Join first two words as time span, keep rest as separate fields
+            time_span = values[0] + ' ' + values[1]
+            return [time_span] + values[2:]
+
+        # If first value is already "ALL TIME" or similar, return as-is
+        return values
 
     def _find_stat_by_name(self, name: str) -> Optional[Dict]:
         """

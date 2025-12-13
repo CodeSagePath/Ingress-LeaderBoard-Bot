@@ -9,11 +9,11 @@ from unittest.mock import Mock, patch, AsyncMock, MagicMock
 import sys
 import os
 
-# Add src directory to path for imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+# Add project root to path for imports
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from bot.progress_handlers import ProgressHandlers
-from database.progress_queries import ProgressQueries
+from src.bot.progress_handlers import ProgressHandlers
+from src.database.progress_queries import ProgressQueries
 
 
 class TestProgressTracking(unittest.TestCase):

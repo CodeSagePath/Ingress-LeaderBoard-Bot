@@ -9,9 +9,9 @@ from typing import Dict, Optional
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
-from leaderboard.generator import LeaderboardGenerator
-from leaderboard.formatters import LeaderboardFormatter
-from config.stats_config import get_stat_by_idx, format_stat_value
+from ..leaderboard.generator import LeaderboardGenerator
+from ..leaderboard.formatters import LeaderboardFormatter
+from ..config.stats_config import get_stat_by_idx, format_stat_value
 
 logger = logging.getLogger(__name__)
 

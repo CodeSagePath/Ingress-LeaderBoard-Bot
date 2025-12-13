@@ -9,11 +9,11 @@ from unittest.mock import Mock, patch, AsyncMock, MagicMock
 import sys
 import os
 
-# Add src directory to path for imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+# Add project root to path for imports
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from bot.handlers import BotHandlers
-from bot.progress_handlers import ProgressHandlers
+from src.bot.handlers import BotHandlers
+from src.bot.progress_handlers import ProgressHandlers
 
 
 class TestBotCommands(unittest.TestCase):

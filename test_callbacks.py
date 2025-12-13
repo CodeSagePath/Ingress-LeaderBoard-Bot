@@ -9,15 +9,12 @@ and are properly integrated with the existing bot framework.
 import sys
 import os
 
-# Add src directory to path for imports
-src_path = os.path.join(os.path.dirname(__file__), 'src')
-sys.path.insert(0, src_path)
+# Add project root to path for imports
+project_root = os.path.dirname(__file__)
+sys.path.insert(0, project_root)
 
-# Change to src directory for relative imports
-os.chdir(src_path)
-
-from bot.callbacks import CallbackHandlers, get_callback_handlers
-from config.stats_config import get_stat_by_idx
+from src.bot.callbacks import CallbackHandlers, get_callback_handlers
+from src.config.stats_config import get_stat_by_idx
 
 
 def test_callback_handlers_initialization():

@@ -9,10 +9,10 @@ import unittest
 import sys
 import os
 
-# Add the src directory to the Python path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+# Add project root to the Python path
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from parsers.business_rules_validator import BusinessRulesValidator
+from src.parsers.business_rules_validator import BusinessRulesValidator
 
 
 class TestBusinessRulesValidator(unittest.TestCase):

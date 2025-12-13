@@ -9,13 +9,13 @@ from unittest.mock import Mock, patch, AsyncMock, MagicMock
 import sys
 import os
 
-# Add src directory to path for imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+# Add project root to path for imports
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from bot.handlers import BotHandlers
-from parsers.stats_parser import StatsParser
-from validation.business_rules_validator import BusinessRulesValidator
-from database.stats_database import StatsDatabase
+from src.bot.handlers import BotHandlers
+from src.parsers.stats_parser import StatsParser
+from src.parsers.business_rules_validator import BusinessRulesValidator
+from src.database.stats_database import StatsDatabase
 
 
 class TestStatsWorkflow(unittest.TestCase):
