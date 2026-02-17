@@ -7,12 +7,15 @@ while maintaining all the robust backend functionality of the existing system.
 
 import os
 import asyncio
+import logging
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackQueryHandler
 from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 
 class IngressLeaderboardBot:
@@ -33,7 +36,8 @@ class IngressLeaderboardBot:
         self.app = Application.builder().token(self.token).build()
 
         # Backend infrastructure (initialized later)
-        self._backend_bot = None
+        self._db_connection = None
+        self._settings = None
         self._initialized = False
 
         # Setup handlers using the simplified structure
@@ -46,31 +50,43 @@ class IngressLeaderboardBot:
             from .handlers import register_simple_handlers
             register_simple_handlers(self.app)
         except ImportError as e:
-            print(f"Warning: Could not import handlers: {e}")
+            logger.warning(f"Could not import handlers: {e}")
             print("Please ensure the handlers module is properly set up")
 
     async def _initialize_backend(self):
         """Initialize the robust backend infrastructure."""
         if not self._initialized:
             try:
-                # Import and initialize the full backend bot
-                from main import IngressLeaderboardBot as FullBot
-                self._backend_bot = FullBot()
+                # Import database connection and settings
+                from ..database.connection import initialize_database
+                from ..config.settings import get_settings
 
-                # Initialize backend systems
-                await self._backend_bot.initialize()
+                # Load settings
+                self._settings = get_settings()
+
+                # Initialize database connection
+                logger.info("Initializing database connection...")
+                self._db_connection = initialize_database(
+                    database_url=self._settings.database.url,
+                    create_tables=True
+                )
+
+                # Test database connection
+                if not self._db_connection.test_connection():
+                    logger.warning("Database connection test failed, but continuing...")
 
                 # Share backend data with simple framework
                 self.app.bot_data.update({
-                    'db_connection': self._backend_bot.application.bot_data.get('db_connection'),
-                    'settings': self._backend_bot.application.bot_data.get('settings'),
-                    'backend_bot': self._backend_bot
+                    'db_connection': self._db_connection,
+                    'settings': self._settings
                 })
 
                 self._initialized = True
                 print("✅ Backend infrastructure initialized successfully")
+                logger.info("Backend infrastructure initialized successfully")
 
             except Exception as e:
+                logger.error(f"Backend initialization failed: {e}")
                 print(f"⚠️ Backend initialization failed: {e}")
                 print("Bot will run with limited functionality")
                 # Continue without backend - basic handlers will still work

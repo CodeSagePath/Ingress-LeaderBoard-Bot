@@ -138,11 +138,12 @@ def _extract_context_info(*args, **kwargs) -> Dict[str, Any]:
                 context_info['chat_id'] = arg.effective_chat.id
                 context_info['chat_type'] = arg.effective_chat.type
         elif hasattr(arg, 'bot_data'):
-            # Telegram Context object
-            if 'user_id' in arg:
-                context_info['user_id'] = arg['user_id']
-            if 'chat_id' in arg:
-                context_info['chat_id'] = arg['chat_id']
+            # Telegram Context object - access bot_data as dict
+            if hasattr(arg, 'bot_data') and isinstance(arg.bot_data, dict):
+                if 'user_id' in arg.bot_data:
+                    context_info['user_id'] = arg.bot_data['user_id']
+                if 'chat_id' in arg.bot_data:
+                    context_info['chat_id'] = arg.bot_data['chat_id']
 
     # Extract common keyword arguments
     if 'user_id' in kwargs:

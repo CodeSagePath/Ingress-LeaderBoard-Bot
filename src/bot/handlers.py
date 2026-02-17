@@ -168,9 +168,9 @@ If you encounter any problems, try submitting your stats again or contact the bo
         Handle /mystats command - Show user's personal stats and history.
         """
         user = update.effective_user
-        session = context.bot_data.get('session')
+        db_connection = context.bot_data.get('db_connection')
 
-        if not session:
+        if not db_connection:
             await update.message.reply_text(
                 "⚠️ Database error. Please try again later."
             )
@@ -178,69 +178,70 @@ If you encounter any problems, try submitting your stats again or contact the bo
 
         try:
             # Get agent associated with this user
-            agent = get_agent_by_telegram_id(session, user.id)
+            with db_connection.session_scope() as session:
+                agent = get_agent_by_telegram_id(session, user.id)
 
-            if not agent:
-                await update.message.reply_text(
-                    "🔍 You haven't submitted any stats yet.\n\n"
-                    "To get started, paste your ALL TIME stats from Ingress Prime!"
-                )
-                return
-
-            # Get latest submission
-            latest_submission = get_latest_submission_for_agent(session, agent.id)
-
-            if not latest_submission:
-                await update.message.reply_text(
-                    f"🤖 Agent <b>{agent.agent_name}</b> ({agent.faction}) found, "
-                    f"but no stats submissions yet.\n\n"
-                    f"Submit your ALL TIME stats to get started!"
-                )
-                return
-
-            # Get some key stats for display
-            lifetime_ap = latest_submission.lifetime_ap or 0
-            level = latest_submission.level or 1
-            submission_date = latest_submission.submission_date
-
-            # Get recent submissions count
-            recent_submissions = session.query(StatsSubmission).filter(
-                StatsSubmission.agent_id == agent.id,
-                StatsSubmission.submission_date >= datetime.now().date() - timedelta(days=30)
-            ).count()
-
-            # Calculate progress for the agent
-            top_improvements = []
-            try:
-                progress_tracker = ProgressTracker(session)
-                progress_data = progress_tracker.calculate_progress(agent.agent_name, days=30)
-
-                # Extract top improvements
-                if 'progress' in progress_data:
-                    progress_stats = progress_data['progress']
-                    # Sort by improvement amount (descending)
-                    sorted_progress = sorted(
-                        progress_stats.items(),
-                        key=lambda x: x[1].get('improvement', 0),
-                        reverse=True
+                if not agent:
+                    await update.message.reply_text(
+                        "🔍 You haven't submitted any stats yet.\n\n"
+                        "To get started, paste your ALL TIME stats from Ingress Prime!"
                     )
+                    return
 
-                    # Get top 5 improvements
-                    for stat_idx, stat_info in sorted_progress[:5]:
-                        improvement = stat_info.get('improvement', 0)
-                        if improvement > 0:
-                            stat_def = get_stat_by_idx(stat_idx)
-                            if stat_def:
-                                stat_name = stat_def['name']
-                                formatted_value = format_stat_value(improvement, stat_idx)
-                                top_improvements.append((stat_name, formatted_value))
+                # Get latest submission
+                latest_submission = get_latest_submission_for_agent(session, agent.id)
 
-            except Exception as e:
-                logger.error(f"Progress calculation failed for agent {agent.agent_name}: {e}")
+                if not latest_submission:
+                    await update.message.reply_text(
+                        f"🤖 Agent <b>{agent.agent_name}</b> ({agent.faction}) found, "
+                        f"but no stats submissions yet.\n\n"
+                        f"Submit your ALL TIME stats to get started!"
+                    )
+                    return
+
+                # Get some key stats for display
+                lifetime_ap = latest_submission.lifetime_ap or 0
+                level = latest_submission.level or 1
+                submission_date = latest_submission.submission_date
+
+                # Get recent submissions count
+                recent_submissions = session.query(StatsSubmission).filter(
+                    StatsSubmission.agent_id == agent.id,
+                    StatsSubmission.submission_date >= datetime.now().date() - timedelta(days=30)
+                ).count()
+
+                # Calculate progress for the agent
                 top_improvements = []
+                try:
+                    progress_tracker = ProgressTracker(session)
+                    progress_data = progress_tracker.calculate_progress(agent.agent_name, days=30)
 
-            # Format the response
-            stats_text = f"""
+                    # Extract top improvements
+                    if 'progress' in progress_data:
+                        progress_stats = progress_data['progress']
+                        # Sort by improvement amount (descending)
+                        sorted_progress = sorted(
+                            progress_stats.items(),
+                            key=lambda x: x[1].get('improvement', 0),
+                            reverse=True
+                        )
+
+                        # Get top 5 improvements
+                        for stat_idx, stat_info in sorted_progress[:5]:
+                            improvement = stat_info.get('improvement', 0)
+                            if improvement > 0:
+                                stat_def = get_stat_by_idx(stat_idx)
+                                if stat_def:
+                                    stat_name = stat_def['name']
+                                    formatted_value = format_stat_value(stat_idx, improvement)
+                                    top_improvements.append((stat_name, formatted_value))
+
+                except Exception as e:
+                    logger.error(f"Progress calculation failed for agent {agent.agent_name}: {e}")
+                    top_improvements = []
+
+                # Format the response
+                stats_text = f"""
 👤 <b>Your Agent Stats</b>
 
 🏷️ <b>Agent:</b> {agent.agent_name}
@@ -252,33 +253,33 @@ If you encounter any problems, try submitting your stats again or contact the bo
 📈 <b>Recent Submissions:</b> {recent_submissions} (30 days)
 """
 
-            # Add progress section if available
-            if top_improvements:
-                stats_text += f"""
+                # Add progress section if available
+                if top_improvements:
+                    stats_text += f"""
 📊 <b>Top Improvements (30 days):</b>
 """
-                for i, (stat_name, formatted_value) in enumerate(top_improvements, 1):
-                    stats_text += f"{i}. <b>{stat_name}</b>: +{formatted_value}\n"
-            else:
-                stats_text += """
+                    for i, (stat_name, formatted_value) in enumerate(top_improvements, 1):
+                        stats_text += f"{i}. <b>{stat_name}</b>: +{formatted_value}\n"
+                else:
+                    stats_text += """
 📊 <b>Top Improvements (30 days):</b>
 <i>No significant progress tracked yet</i>
 """
 
-            stats_text += """
+                stats_text += """
 💡 <b>Quick Actions:</b>
 • Submit new stats: Just paste them here
 • View leaderboards: /leaderboard
 • Get help: /help
 
 Keep your stats up to date to improve your leaderboard rankings!
-            """
+                """
 
-            await update.message.reply_text(
-                stats_text,
-                parse_mode=ParseMode.HTML
-            )
-            logger.info(f"MyStats command from user {user.id} for agent {agent.agent_name}")
+                await update.message.reply_text(
+                    stats_text,
+                    parse_mode=ParseMode.HTML
+                )
+                logger.info(f"MyStats command from user {user.id} for agent {agent.agent_name}")
 
         except Exception as e:
             logger.error(f"Error in mystats command for user {user.id}: {e}")

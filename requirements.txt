@@ -1,14 +1,29 @@
-# Optimized for low memory VPS
-  
-  python-telegram-bot==20.7
-  psycopg2-binary==2.9.9
-  python-dotenv==1.0.0
-  
-  # Optional but recommended
-  APScheduler==3.10.4      # For scheduled tasks
-  redis==5.0.1             # For caching (lightweight)
-  gunicorn==21.2.0         # For health check web server
-  flask==3.0.0             # Lightweight web framework
-  
-  # Monitoring (optional)
-  psutil==5.9.6            # System monitoring
+# Core dependencies
+python-telegram-bot==20.7
+httpx==0.25.2
+psycopg2-binary==2.9.9
+python-dotenv==1.0.0
+SQLAlchemy==2.0.23
+
+# Async HTTP server for monitoring
+aiohttp==3.9.1
+
+# Security
+cryptography==41.0.7
+
+# Optional but recommended
+APScheduler==3.10.4      # For scheduled tasks
+redis==5.0.1             # For caching (lightweight)
+gunicorn==21.2.0         # For health check web server
+flask==3.0.0             # Lightweight web framework
+
+# Monitoring (optional)
+psutil==5.9.6            # System monitoring
+
+# Development dependencies (optional)
+# pytest==7.4.3
+# pytest-asyncio==0.21.1
+# pytest-cov==4.1.0
+# black==23.12.1
+# flake8==6.1.0
+# mypy==1.7.1
