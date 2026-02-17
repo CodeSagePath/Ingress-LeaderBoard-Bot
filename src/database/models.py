@@ -379,12 +379,29 @@ def get_latest_stat_for_agent(session: Session, agent_id: int, stat_idx: int) ->
 def get_leaderboard_for_stat(session: Session, stat_idx: int, limit: int = 20,
                           faction: Optional[str] = None) -> List[Dict]:
     """Get leaderboard data for a specific stat."""
+    # First get the latest submission for each agent
+    latest_subquery = session.query(
+        StatsSubmission.agent_id,
+        func.max(StatsSubmission.submission_date).label('max_date')
+    ).group_by(StatsSubmission.agent_id).subquery()
+
+    # Build main query with explicit join order using select_from()
     query = session.query(
         Agent.agent_name,
         Agent.faction,
         AgentStat.stat_value,
         StatsSubmission.submission_date
-    ).join(StatsSubmission).join(Agent).filter(
+    ).select_from(Agent).join(
+        StatsSubmission,
+        StatsSubmission.agent_id == Agent.id
+    ).join(
+        AgentStat,
+        AgentStat.submission_id == StatsSubmission.id
+    ).join(
+        latest_subquery,
+        (StatsSubmission.agent_id == latest_subquery.c.agent_id) &
+        (StatsSubmission.submission_date == latest_subquery.c.max_date)
+    ).filter(
         AgentStat.stat_idx == stat_idx,
         Agent.is_active == True
     )
@@ -392,17 +409,6 @@ def get_leaderboard_for_stat(session: Session, stat_idx: int, limit: int = 20,
     if faction:
         query = query.filter(Agent.faction == faction)
 
-    # Get latest submission for each agent
-    latest_subquery = session.query(
-        StatsSubmission.agent_id,
-        func.max(StatsSubmission.submission_date).label('max_date')
-    ).group_by(StatsSubmission.agent_id).subquery()
-
-    query = query.join(
-        latest_subquery,
-        (StatsSubmission.agent_id == latest_subquery.c.agent_id) &
-        (StatsSubmission.submission_date == latest_subquery.c.max_date)
-    )
 
     results = query.order_by(AgentStat.stat_value.desc()).limit(limit).all()
 

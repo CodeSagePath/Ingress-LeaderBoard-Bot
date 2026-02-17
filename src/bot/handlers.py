@@ -502,6 +502,13 @@ Compare your performance within your faction or across all agents!
             if callback_data.startswith('lb_'):
                 # Individual stat leaderboard
                 stat_type = callback_data.replace('lb_', '')
+                
+                # Check if faction filter is included (format: lb_6_fEnlightened)
+                faction = None
+                if '_f' in stat_type:
+                    parts = stat_type.split('_f')
+                    stat_type = parts[0]
+                    faction = parts[1] if len(parts) > 1 else None
 
                 # Try to parse as integer first, then use STAT_MAPPING
                 try:
@@ -514,7 +521,7 @@ Compare your performance within your faction or across all agents!
                         await query.edit_message_text("❌ Invalid stat category.")
                         return
 
-                await self._show_stat_leaderboard(query, stat_idx, db_connection)
+                await self._show_stat_leaderboard(query, stat_idx, db_connection, faction)
 
             elif callback_data.startswith('faction_'):
                 # Faction-based leaderboards
@@ -785,12 +792,12 @@ Compare your performance within your faction or across all agents!
 
                 session.commit()
 
-                logger.info(f"Invalidated leaderboard cache for {faction}")
+            logger.info(f"Invalidated leaderboard cache for {faction}")
 
         except Exception as e:
             logger.error(f"Error invalidating cache: {e}")
 
-    async def _show_stat_leaderboard(self, query, stat_idx: int, db_connection) -> None:
+    async def _show_stat_leaderboard(self, query, stat_idx: int, db_connection, faction: Optional[str] = None) -> None:
         """
         Display leaderboard for a specific stat.
         """
@@ -804,11 +811,13 @@ Compare your performance within your faction or across all agents!
         try:
             # Use database connection to get session and leaderboard data
             with db_connection.session_scope() as session:
-                leaderboard_data = get_leaderboard_for_stat(session, stat_idx, limit=15)
+                leaderboard_data = get_leaderboard_for_stat(session, stat_idx, limit=15, faction=faction)
 
                 if not leaderboard_data:
+                    faction_text = f" ({faction})" if faction else ""
                     await query.edit_message_text(
-                        f"📊 No data available for <b>{stat_def['name']}</b> yet."
+                        f"📊 No data available for <b>{stat_def['name']}</b>{faction_text} yet.",
+                        parse_mode=ParseMode.HTML
                     )
                     return
 
@@ -816,6 +825,7 @@ Compare your performance within your faction or across all agents!
             formatter = LeaderboardFormatter()
 
             # Create leaderboard data structure that formatter expects
+            faction_suffix = f" ({faction})" if faction else " (All Factions)"
             formatted_data = {
                 'stat_name': stat_def['name'],
                 'stat_idx': stat_idx,
@@ -828,7 +838,7 @@ Compare your performance within your faction or across all agents!
             }
 
             # Format the leaderboard
-            text = formatter.format_leaderboard(formatted_data, f"{stat_def['name']} (All Time)")
+            text = formatter.format_leaderboard(formatted_data, f"{stat_def['name']}{faction_suffix}")
 
             await query.edit_message_text(
                 text,
