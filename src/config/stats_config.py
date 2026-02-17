@@ -1346,17 +1346,21 @@ def get_stat_by_name(name: str) -> Optional[Dict]:
     """
     return _STATS_BY_NAME.get(name)
 
-def get_badge_level(stat_idx: int, value: int) -> Tuple[Optional[str], Optional[int]]:
+def get_badge_level(stat_idx: int, value) -> Tuple[Optional[str], Optional[int]]:
     """
     Calculate badge level for a stat value.
 
     Args:
         stat_idx: The stat index
-        value: The stat value to evaluate
+        value: The stat value to evaluate (int or float, floats are truncated)
 
     Returns:
         Tuple of (badge_level, next_level_value) or (None, None) if no badges
     """
+    # Convert float to int by truncating (4.9 -> 4)
+    if isinstance(value, float):
+        value = int(value)
+    
     stat = get_stat_by_idx(stat_idx)
     if not stat or 'badges' not in stat:
         return None, None
@@ -1369,7 +1373,14 @@ def get_badge_level(stat_idx: int, value: int) -> Tuple[Optional[str], Optional[
 
     for i, level_value in enumerate(levels):
         if value >= level_value:
-            current_level = BADGE_LEVELS[i]
+            # Only use BADGE_LEVELS if index is in bounds
+            # For stats like Level/AP with 16 tiers, use the index directly
+            if i < len(BADGE_LEVELS):
+                current_level = BADGE_LEVELS[i]
+            else:
+                # For extended levels (like player level 6-16), just use the level number
+                current_level = f"Level {i + 1}"
+            
             if i + 1 < len(levels):
                 next_level = levels[i + 1]
         else:

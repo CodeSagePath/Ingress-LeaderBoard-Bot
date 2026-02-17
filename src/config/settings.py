@@ -316,8 +316,8 @@ class Settings:
         # Validate bot token (allow placeholders for testing)
         if not self.bot.token:
             errors.append("TELEGRAM_BOT_TOKEN is required")
-        elif not self.bot.token.startswith(('1', '2', 'YOUR_TELEGRAM_BOT_TOKEN')):
-            errors.append("TELEGRAM_BOT_TOKEN appears invalid (should start with 1 or 2)")
+        elif not (self.bot.token[0].isdigit() or self.bot.token.startswith('YOUR_TELEGRAM_BOT_TOKEN')):
+            errors.append("TELEGRAM_BOT_TOKEN appears invalid (should start with a digit)")
 
         # Validate database URL
         if not self.database.url:

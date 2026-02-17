@@ -131,30 +131,24 @@ class IngressLeaderboardBot:
 
     async def _setup_telegram_application(self) -> None:
         """Set up the Telegram application with proper configuration."""
-        # Configure application defaults
-        defaults = Defaults(
-            parse_mode='HTML',
-            request_timeout=self.settings.telegram.request_timeout,
-            read_timeout=self.settings.telegram.read_timeout,
-            write_timeout=self.settings.telegram.write_timeout,
-            connect_timeout=self.settings.telegram.connect_timeout,
-            pool_size=self.settings.telegram.connection_pool_size
-        )
+        # Configure application defaults (only parse_mode is supported in Defaults for v20)
+        defaults = Defaults(parse_mode='HTML')
 
-        # Create application
+        # Create application with timeout configuration on the builder
         self.application = Application.builder()\
             .token(self.settings.bot.token)\
             .defaults(defaults)\
             .arbitrary_callback_data(True)\
+            .read_timeout(self.settings.telegram.read_timeout)\
+            .write_timeout(self.settings.telegram.write_timeout)\
+            .connect_timeout(self.settings.telegram.connect_timeout)\
+            .pool_timeout(self.settings.telegram.request_timeout)\
             .build()
 
         # Set up persistence if needed (for webhook mode)
         if self.settings.bot.webhook_url:
             persistence = PicklePersistence(filepath='bot_data.pickle')
             self.application.persistence = persistence
-
-        # Configure rate limiting
-        self.application.updater.rate_limiter = True
 
     async def start(self) -> None:
         """Start the bot application."""
@@ -207,6 +201,11 @@ class IngressLeaderboardBot:
         await self.application.updater.start_polling(
             drop_pending_updates=self.settings.bot.debug
         )
+        
+        # Block until the application is stopped
+        # This keeps the bot running instead of exiting immediately
+        while self.running:
+            await asyncio.sleep(1)
 
     async def _start_with_webhook(self) -> None:
         """Start bot using webhook."""
