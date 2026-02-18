@@ -214,3 +214,5 @@ __marimo__/
 # Miscelleneous
 *.txt
 sample_data/
+
+!requirements-termux.txt
