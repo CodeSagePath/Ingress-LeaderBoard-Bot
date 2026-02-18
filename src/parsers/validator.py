@@ -342,7 +342,7 @@ class StatsValidator:
 
         unknown_count = 0
         for key, stat in parsed_data.items():
-            if isinstance(key, str) and key.startswith('unknown_'):
+            if isinstance(key, str) and key.startswith('unknown_') and isinstance(stat, dict):
                 unknown_count += 1
                 warnings.append({
                     'type': 'unknown_stat',
