@@ -400,8 +400,14 @@ Compare your performance within your faction or across all agents!
         """
         text = update.message.text
 
-        # Check if this looks like stats
-        if not (text.startswith('Time Span') and '\n' in text):
+        # Check if this looks like stats (flexible detection)
+        looks_like_stats = (
+            'Time Span' in text and 
+            ('Agent Name' in text or 'Agent Faction' in text) and
+            'ALL TIME' in text
+        )
+        
+        if not looks_like_stats:
             await update.message.reply_text(
                 "This doesn't look like Ingress stats. 🤔\n\n"
                 "Please copy your ALL TIME stats from Ingress Prime and paste them here.\n\n"
@@ -471,6 +477,13 @@ Compare your performance within your faction or across all agents!
                 success_text,
                 parse_mode=ParseMode.HTML
             )
+
+            # Auto-delete the user's stats message to protect their data
+            try:
+                await update.message.delete()
+                logger.info(f"Auto-deleted stats message from user {update.effective_user.id}")
+            except Exception as del_err:
+                logger.warning(f"Could not auto-delete stats message: {del_err}")
 
             logger.info(
                 f"Stats submitted by user {update.effective_user.id} "
@@ -919,6 +932,7 @@ def register_handlers(application) -> None:
     # Command handlers
     application.add_handler(CommandHandler("start", handlers.start_command))
     application.add_handler(CommandHandler("help", handlers.help_command))
+    application.add_handler(CommandHandler("submit", submit_command))
     application.add_handler(CommandHandler("mystats", handlers.mystats_command))
     application.add_handler(CommandHandler("leaderboard", handlers.leaderboard_command))
     application.add_handler(CommandHandler("factionleaderboard", handlers.faction_leaderboard_command))

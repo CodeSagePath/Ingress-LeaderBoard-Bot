@@ -39,6 +39,10 @@ class StatsParser:
             if not self.is_valid_stats(stats_text):
                 return {'error': 'Invalid stats format', 'error_code': 1}
 
+            # If no newline but contains 'ALL TIME', try to split into 2 lines
+            if '\n' not in stats_text and 'ALL TIME' in stats_text.upper():
+                stats_text = self._split_single_line(stats_text)
+
             # Detect format and parse accordingly
             if '\t' in stats_text:
                 return self.parse_tabulated(stats_text)
@@ -72,9 +76,36 @@ class StatsParser:
 
         return text
 
+    def _split_single_line(self, text: str) -> str:
+        """
+        Split a single-line stats string into header + values lines.
+        
+        Ingress Prime on Android sometimes copies stats as one long string
+        with headers and values concatenated. This method splits at the 
+        'ALL TIME' marker which separates headers from values.
+        
+        Args:
+            text: Single-line stats text
+            
+        Returns:
+            Text with newline inserted between headers and values
+        """
+        # Find 'ALL TIME' which marks the start of the values
+        # Try exact match first
+        idx = text.find('ALL TIME')
+        if idx == -1:
+            idx = text.upper().find('ALL TIME')
+            if idx == -1:
+                return text
+        
+        header_line = text[:idx].strip()
+        values_line = text[idx:].strip()
+        
+        return header_line + '\n' + values_line
+
     def is_valid_stats(self, text: str) -> bool:
         """
-        Check if text starts with valid stats header.
+        Check if text contains valid stats indicators.
 
         Args:
             text: Text to validate
@@ -82,27 +113,24 @@ class StatsParser:
         Returns:
             True if valid stats format, False otherwise
         """
-        # Check for both tab-separated and space-separated headers
-        headers = [
-            'Time Span\tAgent Name\tAgent Faction\tDate',
-            'Time Span Agent Name Agent Faction Date',
-            'Time Span Agent Name Agent Faction'
-        ]
-
-        return any(text.startswith(header) for header in headers)
+        # Check for key indicators that this is Ingress stats
+        has_time_span = 'Time Span' in text
+        has_agent = 'Agent Name' in text or 'Agent Faction' in text
+        has_all_time = 'ALL TIME' in text.upper()
+        
+        return has_time_span and has_agent and has_all_time
 
     @parsing_error_tracking("tabulated")
     def parse_tabulated(self, stats_text: str) -> Dict:
         """
         Parse tab-separated stats format.
-
-        Args:
-            stats_text: Tab-separated stats text
-
-        Returns:
-            Dictionary containing parsed stats
         """
+        # If single line with tabs, try to split at 'ALL TIME'
         lines = stats_text.strip().split('\n')
+        if len(lines) < 2 and 'ALL TIME' in stats_text:
+            stats_text = self._split_single_line(stats_text)
+            lines = stats_text.strip().split('\n')
+        
         if len(lines) < 2:
             return {'error': 'Insufficient data lines', 'error_code': 2}
 
@@ -172,6 +200,10 @@ class StatsParser:
             Dictionary containing parsed stats
         """
         lines = stats_text.strip().split('\n')
+        if len(lines) < 2 and 'ALL TIME' in stats_text.upper():
+            stats_text = self._split_single_line(stats_text)
+            lines = stats_text.strip().split('\n')
+        
         if len(lines) < 2:
             return {'error': 'Insufficient data lines', 'error_code': 2}
 
