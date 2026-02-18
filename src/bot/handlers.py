@@ -400,6 +400,10 @@ Compare your performance within your faction or across all agents!
         """
         text = update.message.text
 
+        # Save message reference for deletion (before any async operations)
+        stats_msg_id = update.message.message_id
+        stats_chat_id = update.message.chat_id
+
         # Check if this looks like stats (flexible detection)
         looks_like_stats = (
             'Time Span' in text and 
@@ -426,6 +430,7 @@ Compare your performance within your faction or across all agents!
             if 'error' in parsed_data:
                 error_msg = self._get_parsing_error_message(parsed_data)
                 await processing_msg.edit_text(f"❌ {error_msg}")
+                await self._delete_stats_message(context.bot, stats_chat_id, stats_msg_id)
                 return
 
             # Validate the parsed data
@@ -434,6 +439,7 @@ Compare your performance within your faction or across all agents!
             if not is_valid:
                 error_text = self._format_validation_errors(warnings)
                 await processing_msg.edit_text(f"❌ Invalid stats:\n\n{error_text}")
+                await self._delete_stats_message(context.bot, stats_chat_id, stats_msg_id)
                 return
 
             # Save to database using new StatsDatabase class
@@ -445,14 +451,11 @@ Compare your performance within your faction or across all agents!
 
             if save_result.get('error'):
                 await processing_msg.edit_text(f"⚠️ Database error: {save_result['error']}")
+                await self._delete_stats_message(context.bot, stats_chat_id, stats_msg_id)
                 return
 
-            # Auto-delete the user's stats message FIRST to protect their data
-            try:
-                await update.message.delete()
-                logger.info(f"Auto-deleted stats message from user {update.effective_user.id}")
-            except Exception as del_err:
-                logger.warning(f"Could not auto-delete stats message: {type(del_err).__name__}: {del_err}")
+            # Auto-delete the user's stats message to protect their data
+            await self._delete_stats_message(context.bot, stats_chat_id, stats_msg_id)
 
             # Get summary information
             summary = self.parser.get_stat_summary(parsed_data)
@@ -499,6 +502,16 @@ Compare your performance within your faction or across all agents!
             await processing_msg.edit_text(
                 "❌ An error occurred while processing your stats. Please try again."
             )
+            # Still try to delete the stats message even on error
+            await self._delete_stats_message(context.bot, stats_chat_id, stats_msg_id)
+
+    async def _delete_stats_message(self, bot, chat_id: int, message_id: int) -> None:
+        """Delete the user's stats message to protect their data."""
+        try:
+            await bot.delete_message(chat_id=chat_id, message_id=message_id)
+            logger.info(f"Auto-deleted stats message {message_id} in chat {chat_id}")
+        except Exception as e:
+            logger.warning(f"Could not auto-delete stats message {message_id} in chat {chat_id}: {type(e).__name__}: {e}")
 
     @error_tracking(error_type="leaderboard_callback", component="bot_handlers")
     async def handle_leaderboard_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
