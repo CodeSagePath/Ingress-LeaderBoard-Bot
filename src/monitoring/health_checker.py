@@ -11,8 +11,17 @@ import time
 from typing import Dict, Any, Optional, List, Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-import psutil
-import aiohttp
+try:
+    import psutil
+    HAS_PSUTIL = True
+except ImportError:
+    HAS_PSUTIL = False
+
+try:
+    import aiohttp
+    HAS_AIOHTTP = True
+except ImportError:
+    HAS_AIOHTTP = False
 from telegram import Bot
 
 
@@ -267,6 +276,12 @@ class HealthChecker:
 
     async def _check_memory(self) -> HealthCheckResult:
         """Check memory usage."""
+        if not HAS_PSUTIL:
+            return HealthCheckResult(
+                component='memory',
+                status='healthy',
+                message='psutil not available, skipping memory check'
+            )
         try:
             memory = psutil.virtual_memory()
             process = psutil.Process()
@@ -311,6 +326,12 @@ class HealthChecker:
 
     async def _check_disk(self) -> HealthCheckResult:
         """Check disk usage."""
+        if not HAS_PSUTIL:
+            return HealthCheckResult(
+                component='disk',
+                status='healthy',
+                message='psutil not available, skipping disk check'
+            )
         try:
             disk = psutil.disk_usage('/')
 

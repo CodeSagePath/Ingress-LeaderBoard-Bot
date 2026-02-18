@@ -8,7 +8,12 @@ import asyncio
 import logging
 from typing import Any, Optional, Dict
 from datetime import datetime
-from aiohttp import web
+try:
+    from aiohttp import web
+    HAS_AIOHTTP = True
+except ImportError:
+    web = None
+    HAS_AIOHTTP = False
 import json
 
 from .health_checker import HealthChecker
@@ -42,12 +47,17 @@ class MonitoringManager:
         self.prometheus_exporter = PrometheusExporter(self.metrics_collector)
 
         # HTTP server for metrics and health endpoints
-        self.app = web.Application()
-        self.site: Optional[web.TCPSite] = None
-        self.runner: Optional[web.AppRunner] = None
+        if HAS_AIOHTTP:
+            self.app = web.Application()
+            self.site: Optional[web.TCPSite] = None
+            self.runner: Optional[web.AppRunner] = None
 
-        # Set up routes
-        self._setup_routes()
+            # Set up routes
+            self._setup_routes()
+        else:
+            self.app = None
+            self.site = None
+            self.runner = None
 
         # Register auto-metrics collection
         self._register_auto_metrics()
