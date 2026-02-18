@@ -4,6 +4,8 @@ Monitoring manager that coordinates health checks and metrics collection.
 Provides a unified interface for all monitoring functionality.
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
 from typing import Any, Optional, Dict
