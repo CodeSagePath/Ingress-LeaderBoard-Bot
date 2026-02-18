@@ -447,13 +447,24 @@ Compare your performance within your faction or across all agents!
                 await processing_msg.edit_text(f"⚠️ Database error: {save_result['error']}")
                 return
 
+            # Auto-delete the user's stats message FIRST to protect their data
+            try:
+                await update.message.delete()
+                logger.info(f"Auto-deleted stats message from user {update.effective_user.id}")
+            except Exception as del_err:
+                logger.warning(f"Could not auto-delete stats message: {type(del_err).__name__}: {del_err}")
+
             # Get summary information
             summary = self.parser.get_stat_summary(parsed_data)
             faction_emoji = '💚' if summary['faction'] == 'Enlightened' else '💙'
 
+            # Check if this was an update or new submission
+            was_updated = save_result.get('updated', False)
+            header = '🔄 <b>Stats Updated Successfully!</b>' if was_updated else '✅ <b>Stats Submitted Successfully!</b>'
+
             # Format success message
             success_text = f"""
-✅ <b>Stats Submitted Successfully!</b>
+{header}
 
 🏷️ <b>Agent:</b> {summary['agent_name']}
 {faction_emoji} <b>Faction:</b> {summary['faction']}
@@ -478,20 +489,13 @@ Compare your performance within your faction or across all agents!
                 parse_mode=ParseMode.HTML
             )
 
-            # Auto-delete the user's stats message to protect their data
-            try:
-                await update.message.delete()
-                logger.info(f"Auto-deleted stats message from user {update.effective_user.id}")
-            except Exception as del_err:
-                logger.warning(f"Could not auto-delete stats message: {del_err}")
-
             logger.info(
-                f"Stats submitted by user {update.effective_user.id} "
+                f"Stats {'updated' if was_updated else 'submitted'} by user {update.effective_user.id} "
                 f"for agent {summary['agent_name']}"
             )
 
         except Exception as e:
-            logger.error(f"Error processing stats from user {update.effective_user.id}: {e}")
+            logger.error(f"Error processing stats from user {update.effective_user.id}: {e}", exc_info=True)
             await processing_msg.edit_text(
                 "❌ An error occurred while processing your stats. Please try again."
             )
@@ -672,7 +676,8 @@ Compare your performance within your faction or across all agents!
 
                 agent_obj.updated_at = datetime.utcnow()
 
-            # Check for duplicate submission
+            # Check for existing submission on the same date — UPDATE it
+            is_update = False
             existing_submission = session.query(StatsSubmission).filter(
                 StatsSubmission.agent_id == agent_obj.id,
                 StatsSubmission.submission_date == submission_date,
@@ -680,26 +685,45 @@ Compare your performance within your faction or across all agents!
             ).first()
 
             if existing_submission:
-                return {
-                    'error': f'Stats already submitted for {agent_name} on {submission_date}',
-                    'existing': True
-                }
+                # Update existing submission instead of rejecting
+                is_update = True
+                stats_submission = existing_submission
+                stats_submission.submission_time = submission_time
+                stats_submission.level = level
+                stats_submission.lifetime_ap = lifetime_ap
+                stats_submission.current_ap = current_ap
+                stats_submission.xm_collected = xm_collected
+                stats_submission.processed_at = datetime.utcnow()
 
-            # Create main stats submission
-            stats_submission = StatsSubmission(
-                agent_id=agent_obj.id,
-                submission_date=submission_date,
-                submission_time=submission_time,
-                stats_type='ALL TIME',
-                level=level,
-                lifetime_ap=lifetime_ap,
-                current_ap=current_ap,
-                xm_collected=xm_collected,
-                parser_version='1.0',
-                submission_format='telegram',
-                processed_at=datetime.utcnow()
-            )
-            session.add(stats_submission)
+                # Delete old individual stats for this submission
+                session.query(AgentStat).filter(
+                    AgentStat.submission_id == stats_submission.id
+                ).delete()
+
+                # Delete old progress snapshots for this date
+                session.query(ProgressSnapshot).filter(
+                    ProgressSnapshot.agent_id == agent_obj.id,
+                    ProgressSnapshot.snapshot_date == submission_date
+                ).delete()
+
+                logger.info(f"Updating existing submission for {agent_name} on {submission_date}")
+            else:
+                # Create new stats submission
+                stats_submission = StatsSubmission(
+                    agent_id=agent_obj.id,
+                    submission_date=submission_date,
+                    submission_time=submission_time,
+                    stats_type='ALL TIME',
+                    level=level,
+                    lifetime_ap=lifetime_ap,
+                    current_ap=current_ap,
+                    xm_collected=xm_collected,
+                    parser_version='1.0',
+                    submission_format='telegram',
+                    processed_at=datetime.utcnow()
+                )
+                session.add(stats_submission)
+
             session.flush()  # Get the submission ID
 
             # Create individual stat records
@@ -774,7 +798,8 @@ Compare your performance within your faction or across all agents!
                 'faction': faction,
                 'stats_count': stats_count,
                 'is_new_agent': is_new_agent,
-                'faction_changed': old_faction != faction and old_faction is not None
+                'faction_changed': old_faction != faction and old_faction is not None,
+                'updated': is_update
             }
 
         except SQLAlchemyError as e:

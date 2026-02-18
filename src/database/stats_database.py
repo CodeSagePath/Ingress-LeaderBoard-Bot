@@ -92,38 +92,54 @@ class StatsDatabase:
                 current_ap = int(current_ap_str) if current_ap_str else None
                 xm_collected = int(xm_collected_str) if xm_collected_str else None
 
-                # Check for duplicate submission
+                # Check for existing submission — UPDATE instead of rejecting
+                is_update = False
                 existing = session.query(StatsSubmission).filter(
                     StatsSubmission.agent_id == agent.id,
                     StatsSubmission.submission_date == submission_date,
-                    StatsSubmission.submission_time == submission_time
+                    StatsSubmission.stats_type == 'ALL TIME'
                 ).first()
 
                 if existing:
-                    logger.warning(f"Duplicate submission found for agent {agent_name} on {submission_date} {submission_time}")
-                    return {
-                        'success': False,
-                        'error': f'Stats already submitted for {agent_name} on {submission_date} {submission_time}',
-                        'duplicate': True,
-                        'existing_submission_id': existing.id
-                    }
+                    # Update existing submission
+                    is_update = True
+                    stats_submission = existing
+                    stats_submission.submission_time = submission_time
+                    stats_submission.level = level
+                    stats_submission.lifetime_ap = lifetime_ap
+                    stats_submission.current_ap = current_ap
+                    stats_submission.xm_collected = xm_collected
+                    stats_submission.processed_at = datetime.utcnow()
 
-                # Create main stats submission
-                stats_submission = StatsSubmission(
-                    agent_id=agent.id,
-                    submission_date=submission_date,
-                    submission_time=submission_time,
-                    stats_type='ALL TIME',
-                    level=level,
-                    lifetime_ap=lifetime_ap,
-                    current_ap=current_ap,
-                    xm_collected=xm_collected,
-                    parser_version='1.0',
-                    submission_format='telegram',
-                    processed_at=datetime.utcnow()
-                )
+                    # Delete old individual stats
+                    session.query(AgentStat).filter(
+                        AgentStat.submission_id == stats_submission.id
+                    ).delete()
 
-                session.add(stats_submission)
+                    # Delete old progress snapshots for this date
+                    session.query(ProgressSnapshot).filter(
+                        ProgressSnapshot.agent_id == agent.id,
+                        ProgressSnapshot.snapshot_date == submission_date
+                    ).delete()
+
+                    logger.info(f"Updating existing submission for {agent_name} on {submission_date}")
+                else:
+                    # Create new stats submission
+                    stats_submission = StatsSubmission(
+                        agent_id=agent.id,
+                        submission_date=submission_date,
+                        submission_time=submission_time,
+                        stats_type='ALL TIME',
+                        level=level,
+                        lifetime_ap=lifetime_ap,
+                        current_ap=current_ap,
+                        xm_collected=xm_collected,
+                        parser_version='1.0',
+                        submission_format='telegram',
+                        processed_at=datetime.utcnow()
+                    )
+                    session.add(stats_submission)
+
                 session.flush()  # Get submission ID
 
                 # Create individual stat records (fixed iteration logic)
