@@ -412,6 +412,11 @@ Compare your performance within your faction or across all agents!
         )
         
         if not looks_like_stats:
+            # In groups, stay silent if it's not stats to avoid potential spam
+            if update.effective_chat.type in ['group', 'supergroup']:
+                return
+
+            # In DMs, help the user
             await update.message.reply_text(
                 "This doesn't look like Ingress stats. 🤔\n\n"
                 "Please copy your ALL TIME stats from Ingress Prime and paste them here.\n\n"
