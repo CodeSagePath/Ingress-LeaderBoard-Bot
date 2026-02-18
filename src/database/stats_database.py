@@ -10,6 +10,7 @@ import logging
 from typing import Dict, List, Optional, Tuple, Any
 from datetime import datetime, date, time
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
+from sqlalchemy import func
 
 from .models import (
     User, Agent, StatsSubmission, AgentStat, FactionChange,
@@ -228,7 +229,7 @@ class StatsDatabase:
                     agent_id=agent.id,
                     old_faction=agent.faction,
                     new_faction=faction,
-                    change_reason='user_submission'
+                    reason='user_submission'
                 )
                 session.add(faction_change)
 
@@ -503,34 +504,20 @@ class StatsDatabase:
                     Agent.is_active == True
                 )
 
-                # Add faction filter if specified
                 if faction:
                     query = query.filter(Agent.faction == faction)
 
-                # Get the latest submission for each agent
-                latest_submissions = session.query(
-                    Agent.id,
-                    StatsSubmission.submission_date,
-                    StatsSubmission.submission_time,
-                    StatsSubmission.id.label('submission_id')
-                ).join(
-                    StatsSubmission, Agent.id == StatsSubmission.agent_id
-                ).group_by(
-                    Agent.id
-                ).having(
-                    StatsSubmission.submission_date == session.query(
-                        session.query(StatsSubmission.submission_date)
-                    ).filter(StatsSubmission.agent_id == Agent.id)
-                    .order_by(StatsSubmission.submission_date.desc())
-                    .limit(1)
-                    .as_scalar()
-                ).subquery()
+                # Get the latest submission date for each agent to ensure we show current stats
+                latest_subquery = session.query(
+                    StatsSubmission.agent_id,
+                    func.max(StatsSubmission.submission_date).label('max_date')
+                ).group_by(StatsSubmission.agent_id).subquery()
 
-                # Filter to only latest submissions
+                # Filter to only latest submissions matched by agent_id and date
                 query = query.join(
-                    latest_submissions,
-                    (AgentStat.submission_id == latest_submissions.c.submission_id) &
-                    (Agent.id == latest_submissions.c.id)
+                    latest_subquery,
+                    (StatsSubmission.agent_id == latest_subquery.c.agent_id) &
+                    (StatsSubmission.submission_date == latest_subquery.c.max_date)
                 )
 
                 # Order by stat value (descending)

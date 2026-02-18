@@ -44,7 +44,6 @@ class ProgressHandlers(BotHandlers):
             db_connection: Database connection instance
         """
         super().__init__(db_connection)
-        self.progress_tracker = ProgressTracker()
 
     async def progress_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """
@@ -75,18 +74,14 @@ class ProgressHandlers(BotHandlers):
                 except ValueError:
                     days = 30
 
-            # Get user's agent from database
-            session = context.bot_data.get('session')
-            if not session:
-                await update.message.reply_text(
-                    "⚠️ Database error. Please try again later."
-                )
-                return
+            with self.db.session_scope() as session:
+                tracker = ProgressTracker(session)
+                
+                # Get user's agent from database
+                agent = get_agent_by_telegram_id(session, user.id)
 
-            agent = get_agent_by_telegram_id(session, user.id)
-
-            if not agent:
-                help_text = """
+                if not agent:
+                    help_text = """
 🔍 **Agent Not Found**
 
 You haven't submitted any stats yet. To get started:
@@ -97,47 +92,47 @@ You haven't submitted any stats yet. To get started:
 4. Paste them here 💬
 
 Once you've submitted stats, you can track your progress!
-                """
+                    """
+                    await update.message.reply_text(
+                        help_text,
+                        parse_mode=ParseMode.HTML,
+                        disable_web_page_preview=True
+                    )
+                    return
+
+                # Calculate progress for the specified period
+                progress_data = tracker.calculate_progress(
+                    agent.agent_name, days
+                )
+
+                # Format progress report
+                progress_text = tracker.format_progress_report(
+                    progress_data, agent.agent_name, days
+                )
+
+                # Add action buttons for navigation
+                keyboard = [
+                    [
+                        InlineKeyboardButton("📊 My Stats", callback_data='mystats'),
+                        InlineKeyboardButton("🏆 Leaderboards", callback_data='leaderboard')
+                    ],
+                    [
+                        InlineKeyboardButton("⏰ 7 Days", callback_data=f'progress_7'),
+                        InlineKeyboardButton("📅 30 Days", callback_data=f'progress_30'),
+                        InlineKeyboardButton("📆 90 Days", callback_data=f'progress_90')
+                    ]
+                ]
+
+                reply_markup = InlineKeyboardMarkup(keyboard)
+
                 await update.message.reply_text(
-                    help_text,
+                    progress_text,
                     parse_mode=ParseMode.HTML,
+                    reply_markup=reply_markup,
                     disable_web_page_preview=True
                 )
-                return
 
-            # Calculate progress for the specified period
-            progress_data = self.progress_tracker.calculate_progress(
-                agent.agent_name, days
-            )
-
-            # Format progress report
-            progress_text = self.progress_tracker.format_progress_report(
-                progress_data, agent.agent_name, days
-            )
-
-            # Add action buttons for navigation
-            keyboard = [
-                [
-                    InlineKeyboardButton("📊 My Stats", callback_data='mystats'),
-                    InlineKeyboardButton("🏆 Leaderboards", callback_data='leaderboard')
-                ],
-                [
-                    InlineKeyboardButton("⏰ 7 Days", callback_data=f'progress_7'),
-                    InlineKeyboardButton("📅 30 Days", callback_data=f'progress_30'),
-                    InlineKeyboardButton("📆 90 Days", callback_data=f'progress_90')
-                ]
-            ]
-
-            reply_markup = InlineKeyboardMarkup(keyboard)
-
-            await update.message.reply_text(
-                progress_text,
-                parse_mode=ParseMode.HTML,
-                reply_markup=reply_markup,
-                disable_web_page_preview=True
-            )
-
-            logger.info(f"Progress command for user {user.id}, agent {agent.agent_name}, period {days} days")
+                logger.info(f"Progress command for user {user.id}, agent {agent.agent_name}, period {days} days")
 
         except Exception as e:
             logger.error(f"Error in progress command for user {user.id}: {e}")
@@ -162,20 +157,16 @@ Once you've submitted stats, you can track your progress!
         progress tracking integration.
         """
         user = update.effective_user
-        session = context.bot_data.get('session')
-
-        if not session:
-            await update.message.reply_text(
-                "⚠️ Database error. Please try again later."
-            )
-            return
-
+        
         try:
-            # Get user's agent
-            agent = get_agent_by_telegram_id(session, user.id)
+            with self.db.session_scope() as session:
+                tracker = ProgressTracker(session)
+                
+                # Get user's agent
+                agent = get_agent_by_telegram_id(session, user.id)
 
-            if not agent:
-                help_text = """
+                if not agent:
+                    help_text = """
 🔍 **Agent Not Found**
 
 You haven't submitted any stats yet. To get started:
@@ -186,22 +177,22 @@ You haven't submitted any stats yet. To get started:
 4. Paste them here 💬
 
 Once you've submitted stats, you can view detailed progress reports!
-                """
-                await update.message.reply_text(
-                    help_text,
-                    parse_mode=ParseMode.HTML,
-                    disable_web_page_preview=True
-                )
-                return
+                    """
+                    await update.message.reply_text(
+                        help_text,
+                        parse_mode=ParseMode.HTML,
+                        disable_web_page_preview=True
+                    )
+                    return
 
-            # Get latest submission
-            from ..database.models import StatsSubmission, AgentStat
-            latest_submission = session.query(StatsSubmission).filter(
-                StatsSubmission.agent_id == agent.id
-            ).order_by(StatsSubmission.submission_date.desc()).first()
+                # Get latest submission
+                from ..database.models import StatsSubmission, AgentStat
+                latest_submission = session.query(StatsSubmission).filter(
+                    StatsSubmission.agent_id == agent.id
+                ).order_by(StatsSubmission.submission_date.desc()).first()
 
-            if not latest_submission:
-                help_text = """
+                if not latest_submission:
+                    help_text = """
 📊 **No Stats Found**
 
 You haven't submitted any stats yet. To get started:
@@ -211,103 +202,103 @@ You haven't submitted any stats yet. To get started:
 3. Paste them here 💬
 
 Submit your stats to enable progress tracking!
-                """
+                    """
+                    await update.message.reply_text(
+                        help_text,
+                        parse_mode=ParseMode.HTML,
+                        disable_web_page_preview=True
+                    )
+                    return
+
+                # Get latest agent stats
+                agent_stats = session.query(AgentStat).filter(
+                    AgentStat.submission_id == latest_submission.id
+                ).all()
+
+                # Build enhanced stats report
+                faction_emoji = "💚" if agent.faction == 'Enlightened' else "💙"
+                header = f"{faction_emoji} **Agent Stats Report**\n\n"
+                header += f"👤 **Agent:** {agent.agent_name}\n"
+                header += f"🎯 **Level:** {agent.level or 'N/A'}\n"
+                header += f"🏷️ **Faction:** {agent.faction}\n"
+                header += f"📅 **Last Submission:** {latest_submission.submission_date.strftime('%Y-%m-%d')}\n\n"
+
+                # Format key stats
+                stats_text = "**📊 Latest Key Stats:**\n\n"
+
+                # Key stat indices to display (user-friendly order)
+                key_stats = [
+                    (6, "Lifetime AP"),
+                    (8, "Unique Portals Visited"),
+                    (13, "Distance Walked"),
+                    (14, "Resonators Deployed"),
+                    (15, "Links Created"),
+                    (16, "Control Fields Created"),
+                    (17, "MU Captured"),
+                    (20, "XM Recharged"),
+                    (28, "Hacks")
+                ]
+
+                for stat_idx, stat_name in key_stats:
+                    agent_stat = next((s for s in agent_stats if s.stat_idx == stat_idx), None)
+                    if agent_stat:
+                        from ..config.stats_config import format_stat_value
+                        formatted_value = format_stat_value(agent_stat.stat_value, stat_idx)
+                        stats_text += f"• **{stat_name}:** {formatted_value}\n"
+
+                # Calculate progress summaries for different periods
+                progress_text = "\n**📈 Recent Progress:**\n\n"
+
+                # Get progress summary for multiple periods
+                progress_summary = tracker.get_agent_progress_summary(agent.agent_name)
+
+                if 'error' not in progress_summary:
+                    periods = progress_summary.get('periods', {})
+
+                    for days in [7, 30, 90]:
+                        period_key = f'{days}_days'
+                        if period_key in periods:
+                            period_data = periods[period_key]
+                            if 'error' not in period_data:
+                                improving_stats = period_data.get('improving_stats', 0)
+                                total_stats = period_data.get('total_stats', 0)
+
+                                if improving_stats > 0:
+                                    progress_text += f"• **Last {days} days:** {improving_stats}/{total_stats} stats improving ✅\n"
+                                else:
+                                    progress_text += f"• **Last {days} days:** No improvement detected ⏸\n"
+                            else:
+                                progress_text += f"• **Last {days} days:** Data unavailable ⚠️\n"
+                        else:
+                            progress_text += f"• **Last {days} days:** No data available ⏸\n"
+                else:
+                    progress_text += "• Progress data unavailable - submit more stats to track trends!\n"
+
+                # Combine all sections
+                full_text = header + stats_text + progress_text
+
+                # Add action buttons
+                keyboard = [
+                    [
+                        InlineKeyboardButton("📈 Progress (30 days)", callback_data='progress_30'),
+                        InlineKeyboardButton("🏆 Leaderboards", callback_data='leaderboard')
+                    ],
+                    [
+                        InlineKeyboardButton("📊 Submit Stats", callback_data='submit'),
+                        InlineKeyboardButton("ℹ️ Help", callback_data='help')
+                    ]
+                ]
+
+                reply_markup = InlineKeyboardMarkup(keyboard)
+
                 await update.message.reply_text(
-                    help_text,
+                    full_text,
                     parse_mode=ParseMode.HTML,
+                    reply_markup=reply_markup,
                     disable_web_page_preview=True
                 )
-                return
 
-            # Get latest agent stats
-            agent_stats = session.query(AgentStat).filter(
-                AgentStat.submission_id == latest_submission.id
-            ).all()
-
-            # Build enhanced stats report
-            faction_emoji = "💚" if agent.faction == 'Enlightened' else "💙"
-            header = f"{faction_emoji} **Agent Stats Report**\n\n"
-            header += f"👤 **Agent:** {agent.agent_name}\n"
-            header += f"🎯 **Level:** {agent.level or 'N/A'}\n"
-            header += f"🏷️ **Faction:** {agent.faction}\n"
-            header += f"📅 **Last Submission:** {latest_submission.submission_date.strftime('%Y-%m-%d')}\n\n"
-
-            # Format key stats
-            stats_text = "**📊 Latest Key Stats:**\n\n"
-
-            # Key stat indices to display (user-friendly order)
-            key_stats = [
-                (6, "Lifetime AP"),
-                (8, "Unique Portals Visited"),
-                (13, "Distance Walked"),
-                (14, "Resonators Deployed"),
-                (15, "Links Created"),
-                (16, "Control Fields Created"),
-                (17, "MU Captured"),
-                (20, "XM Recharged"),
-                (28, "Hacks")
-            ]
-
-            for stat_idx, stat_name in key_stats:
-                agent_stat = next((s for s in agent_stats if s.stat_idx == stat_idx), None)
-                if agent_stat:
-                    from ..config.stats_config import format_stat_value
-                    formatted_value = format_stat_value(agent_stat.stat_value, stat_idx)
-                    stats_text += f"• **{stat_name}:** {formatted_value}\n"
-
-            # Calculate progress summaries for different periods
-            progress_text = "\n**📈 Recent Progress:**\n\n"
-
-            # Get progress summary for multiple periods
-            progress_summary = self.progress_tracker.get_agent_progress_summary(agent.agent_name)
-
-            if 'error' not in progress_summary:
-                periods = progress_summary.get('periods', {})
-
-                for days in [7, 30, 90]:
-                    period_key = f'{days}_days'
-                    if period_key in periods:
-                        period_data = periods[period_key]
-                        if 'error' not in period_data:
-                            improving_stats = period_data.get('improving_stats', 0)
-                            total_stats = period_data.get('total_stats', 0)
-
-                            if improving_stats > 0:
-                                progress_text += f"• **Last {days} days:** {improving_stats}/{total_stats} stats improving ✅\n"
-                            else:
-                                progress_text += f"• **Last {days} days:** No improvement detected ⏸\n"
-                        else:
-                            progress_text += f"• **Last {days} days:** Data unavailable ⚠️\n"
-                    else:
-                        progress_text += f"• **Last {days} days:** No data available ⏸\n"
-            else:
-                progress_text += "• Progress data unavailable - submit more stats to track trends!\n"
-
-            # Combine all sections
-            full_text = header + stats_text + progress_text
-
-            # Add action buttons
-            keyboard = [
-                [
-                    InlineKeyboardButton("📈 Progress (30 days)", callback_data='progress_30'),
-                    InlineKeyboardButton("🏆 Leaderboards", callback_data='leaderboard')
-                ],
-                [
-                    InlineKeyboardButton("📊 Submit Stats", callback_data='submit'),
-                    InlineKeyboardButton("ℹ️ Help", callback_data='help')
-                ]
-            ]
-
-            reply_markup = InlineKeyboardMarkup(keyboard)
-
-            await update.message.reply_text(
-                full_text,
-                parse_mode=ParseMode.HTML,
-                reply_markup=reply_markup,
-                disable_web_page_preview=True
-            )
-
-            logger.info(f"Enhanced mystats command for user {user.id}, agent {agent.agent_name}")
+                logger.info(f"Enhanced mystats command for user {user.id}, agent {agent.agent_name}")
 
         except Exception as e:
             logger.error(f"Error in enhanced mystats command for user {user.id}: {e}")
@@ -373,95 +364,97 @@ Submit your stats to enable progress tracking!
                     days = 30
 
             # Get progress leaderboard
-            leaderboard = self.progress_tracker.get_progress_leaderboard(
-                stat_idx, days, limit=15
-            )
-
-            if not leaderboard:
-                await update.message.reply_text(
-                    "📊 **No Progress Data**\n\n"
-                    "No agents have shown progress in this category yet. "
-                    "Submit your stats regularly to see improvement rankings!",
-                    parse_mode=ParseMode.HTML
+            with self.db.session_scope() as session:
+                tracker = ProgressTracker(session)
+                leaderboard = tracker.get_progress_leaderboard(
+                    stat_idx, days, limit=15
                 )
-                return
 
-            if 'error' in leaderboard[0] if leaderboard else False:
-                await update.message.reply_text(
-                    "❌ **Error**\n\n"
-                    "Failed to retrieve progress leaderboard. Please try again later.",
-                    parse_mode=ParseMode.HTML
-                )
-                return
+                if not leaderboard:
+                    await update.message.reply_text(
+                        "📊 **No Progress Data**\n\n"
+                        "No agents have shown progress in this category yet. "
+                        "Submit your stats regularly to see improvement rankings!",
+                        parse_mode=ParseMode.HTML
+                    )
+                    return
 
-            # Format leaderboard
-            faction_emoji = "🌐"
-            header = f"🏆 {faction_emoji} **Progress Leaderboard**\n\n"
-            header += f"📊 **Stat:** {stat_name}\n"
-            header += f"📅 **Period:** Last {days} days\n"
-            header += f"👥 **Showing:** Top {len(leaderboard)} agents\n\n"
+                if 'error' in leaderboard[0] if leaderboard else False:
+                    await update.message.reply_text(
+                        "❌ **Error**\n\n"
+                        "Failed to retrieve progress leaderboard. Please try again later.",
+                        parse_mode=ParseMode.HTML
+                    )
+                    return
 
-            leaderboard_text = "**📈 Top Improvers:**\n\n"
+                # Format leaderboard
+                faction_emoji = "🌐"
+                header = f"🏆 {faction_emoji} **Progress Leaderboard**\n\n"
+                header += f"📊 **Stat:** {stat_name}\n"
+                header += f"📅 **Period:** Last {days} days\n"
+                header += f"👥 **Showing:** Top {len(leaderboard)} agents\n\n"
 
-            for entry in leaderboard[:10]:  # Show top 10
-                rank = entry.get('rank', 0)
-                agent_name = entry.get('agent_name', 'Unknown')
-                faction = entry.get('faction', 'Unknown')
-                progress = entry.get('progress', 0)
+                leaderboard_text = "**📈 Top Improvers:**\n\n"
 
-                faction_emoji = "💚" if faction == 'Enlightened' else "💙"
+                for entry in leaderboard[:10]:  # Show top 10
+                    rank = entry.get('rank', 0)
+                    agent_name = entry.get('agent_name', 'Unknown')
+                    faction = entry.get('faction', 'Unknown')
+                    progress = entry.get('progress', 0)
 
-                # Add medal emojis for top 3
-                if rank == 1:
-                    rank_emoji = "🥇"
-                elif rank == 2:
-                    rank_emoji = "🥈"
-                elif rank == 3:
-                    rank_emoji = "🥉"
-                else:
-                    rank_emoji = f"#{rank:2d}"
+                    faction_emoji = "💚" if faction == 'Enlightened' else "💙"
 
-                # Format progress value
-                from ..config.stats_config import format_stat_value
-                formatted_progress = format_stat_value(progress, stat_idx)
+                    # Add medal emojis for top 3
+                    if rank == 1:
+                        rank_emoji = "🥇"
+                    elif rank == 2:
+                        rank_emoji = "🥈"
+                    elif rank == 3:
+                        rank_emoji = "🥉"
+                    else:
+                        rank_emoji = f"#{rank:2d}"
 
-                leaderboard_text += f"{rank_emoji} {faction_emoji} **{agent_name}**: +{formatted_progress}\n"
+                    # Format progress value
+                    from ..config.stats_config import format_stat_value
+                    formatted_progress = format_stat_value(progress, stat_idx)
 
-            # Add stat summary
-            if len(leaderboard) > 10:
-                remaining = len(leaderboard) - 10
-                leaderboard_text += f"\n... and {remaining} more agents"
+                    leaderboard_text += f"{rank_emoji} {faction_emoji} **{agent_name}**: +{formatted_progress}\n"
 
-            # Add action buttons for different stats
-            keyboard = [
-                [
-                    InlineKeyboardButton("📊 AP", callback_data='progress_lb_6'),
-                    InlineKeyboardButton("🔍 Explorer", callback_data='progress_lb_8'),
-                    InlineKeyboardButton("🚶 Trekker", callback_data='progress_lb_13'),
-                    InlineKeyboardButton("🔨 Builder", callback_data='progress_lb_14')
-                ],
-                [
-                    InlineKeyboardButton("🔗 Connector", callback_data='progress_lb_15'),
-                    InlineKeyboardButton("🧠 Mind Controller", callback_data='progress_lb_16'),
-                    InlineKeyboardButton("⚡ Recharger", callback_data='progress_lb_20'),
-                    InlineKeyboardButton("💬 Hacker", callback_data='progress_lb_28')
-                ],
-                [
-                    InlineKeyboardButton("📈 My Progress", callback_data='progress_30'),
-                    InlineKeyboardButton("🏆 Regular Leaderboard", callback_data='leaderboard')
+                # Add stat summary
+                if len(leaderboard) > 10:
+                    remaining = len(leaderboard) - 10
+                    leaderboard_text += f"\n... and {remaining} more agents"
+
+                # Add action buttons for different stats
+                keyboard = [
+                    [
+                        InlineKeyboardButton("📊 AP", callback_data='progress_lb_6'),
+                        InlineKeyboardButton("🔍 Explorer", callback_data='progress_lb_8'),
+                        InlineKeyboardButton("🚶 Trekker", callback_data='progress_lb_13'),
+                        InlineKeyboardButton("🔨 Builder", callback_data='progress_lb_14')
+                    ],
+                    [
+                        InlineKeyboardButton("🔗 Connector", callback_data='progress_lb_15'),
+                        InlineKeyboardButton("🧠 Mind Controller", callback_data='progress_lb_16'),
+                        InlineKeyboardButton("⚡ Recharger", callback_data='progress_lb_20'),
+                        InlineKeyboardButton("💬 Hacker", callback_data='progress_lb_28')
+                    ],
+                    [
+                        InlineKeyboardButton("📈 My Progress", callback_data='progress_30'),
+                        InlineKeyboardButton("🏆 Regular Leaderboard", callback_data='leaderboard')
+                    ]
                 ]
-            ]
 
-            reply_markup = InlineKeyboardMarkup(keyboard)
+                reply_markup = InlineKeyboardMarkup(keyboard)
 
-            await update.message.reply_text(
-                header + leaderboard_text,
-                parse_mode=ParseMode.HTML,
-                reply_markup=reply_markup,
-                disable_web_page_preview=True
-            )
+                await update.message.reply_text(
+                    header + leaderboard_text,
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=reply_markup,
+                    disable_web_page_preview=True
+                )
 
-            logger.info(f"Progress leaderboard for stat {stat_idx} ({stat_name}), period {days} days")
+                logger.info(f"Progress leaderboard for stat {stat_idx} ({stat_name}), period {days} days")
 
         except Exception as e:
             logger.error(f"Error in progress leaderboard command: {e}")
@@ -491,32 +484,25 @@ Submit your stats to enable progress tracking!
                 parts = callback_data.split('_')
                 days = int(parts[1]) if len(parts) > 1 else 30
 
-                user = update.effective_user
-                session = context.bot_data.get('session')
-
-                if not session:
-                    await query.edit_message_text(
-                        "⚠️ Database error. Please try again later."
-                    )
-                    return
-
-                agent = get_agent_by_telegram_id(session, user.id)
-
-                if not agent:
-                    await query.edit_message_text(
-                        "🔍 **Agent Not Found**\n\n"
-                        "You haven't submitted any stats yet. Use /submit to get started!",
-                        parse_mode=ParseMode.HTML
-                    )
-                    return
-
                 # Calculate and format progress
-                progress_data = self.progress_tracker.calculate_progress(
-                    agent.agent_name, days
-                )
-                progress_text = self.progress_tracker.format_progress_report(
-                    progress_data, agent.agent_name, days
-                )
+                with self.db.session_scope() as session:
+                    tracker = ProgressTracker(session)
+                    agent = get_agent_by_telegram_id(session, user.id)
+
+                    if not agent:
+                        await query.edit_message_text(
+                            "🔍 **Agent Not Found**\n\n"
+                            "You haven't submitted any stats yet. Use /submit to get started!",
+                            parse_mode=ParseMode.HTML
+                        )
+                        return
+
+                    progress_data = tracker.calculate_progress(
+                        agent.agent_name, days
+                    )
+                    progress_text = tracker.format_progress_report(
+                        progress_data, agent.agent_name, days
+                    )
 
                 # Update navigation buttons
                 keyboard = [
@@ -555,9 +541,11 @@ Submit your stats to enable progress tracking!
                     return
 
                 # Get progress leaderboard
-                leaderboard = self.progress_tracker.get_progress_leaderboard(
-                    stat_idx, 30, limit=10
-                )
+                with self.db.session_scope() as session:
+                    tracker = ProgressTracker(session)
+                    leaderboard = tracker.get_progress_leaderboard(
+                        stat_idx, 30, limit=10
+                    )
 
                 # Format leaderboard
                 faction_emoji = "🌐"

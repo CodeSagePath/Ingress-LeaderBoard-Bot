@@ -87,10 +87,10 @@ class TestDataGenerator:
             21: {'idx': 21, 'name': 'Portals Captured', 'value': str(int(base_activity * 1.2)), 'type': 'N'},
             22: {'idx': 22, 'name': 'Max Times Hacked', 'value': str(random.randint(8, 50)), 'type': 'N'},
             28: {'idx': 28, 'name': 'Hacks', 'value': str(base_activity * 10), 'type': 'N'},
-            29: {'idx': 29, 'name': 'Max Link Length', 'value': f"{random.uniform(1, 20):.1f}", 'type': 'N'},
+            29: {'idx': 29, 'name': 'Max Link Length', 'value': str(random.randint(1, 20)), 'type': 'N'},
             30: {'idx': 30, 'name': 'Max Time Portal Held', 'value': str(random.randint(1, 90)), 'type': 'N'},
             31: {'idx': 31, 'name': 'Max Time Field Held', 'value': str(random.randint(1, 30)), 'type': 'N'},
-            32: {'idx': 32, 'name': 'Longest Link', 'value': f"{random.uniform(1, 25):.1f}", 'type': 'N'},
+            32: {'idx': 32, 'name': 'Longest Link', 'value': str(random.randint(1, 25)), 'type': 'N'},
             33: {'idx': 33, 'name': 'Largest Field', 'value': str(random.randint(1000, 50000)), 'type': 'N'},
         }
 

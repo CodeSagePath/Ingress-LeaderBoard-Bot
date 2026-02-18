@@ -21,8 +21,6 @@ class CallbackHandlers:
 
     def __init__(self):
         """Initialize callback handlers."""
-        # Initialize LeaderboardGenerator with session (will be set at runtime)
-        self.lb_generator = None
         self.lb_formatter = LeaderboardFormatter()
 
         # Mapping of callback data to stat indices for leaderboard categories
@@ -127,16 +125,15 @@ class CallbackHandlers:
             return
 
         try:
-            # Initialize leaderboard generator with session if needed
-            if not self.lb_generator:
-                self.lb_generator = LeaderboardGenerator(db_connection.get_session())
-
-            # Generate the leaderboard using the configured generator
-            leaderboard = self.lb_generator.generate(
-                stat_idx=stat_idx,
-                limit=20,  # Show top 20 entries
-                use_cache=True  # Use cached results for performance
-            )
+            # Generate the leaderboard using a local generator with scoped session
+            with db_connection.session_scope() as session:
+                generator = LeaderboardGenerator(session)
+                
+                leaderboard = generator.generate(
+                    stat_idx=stat_idx,
+                    limit=20,  # Show top 20 entries
+                    use_cache=True  # Use cached results for performance
+                )
 
             if 'error' in leaderboard:
                 logger.error(f"Error generating leaderboard for stat {stat_idx}: {leaderboard['error']}")
@@ -275,18 +272,17 @@ Select a category to view the leaderboard:
                         await query.edit_message_text("⚠️ Database error. Please try again later.")
                         return
 
-                    # Initialize leaderboard generator with session if needed
-                    if not self.lb_generator:
-                        from ..leaderboard.generator import LeaderboardGenerator
-                        self.lb_generator = LeaderboardGenerator(db_connection.get_session())
-
                     # Generate faction-specific leaderboard
-                    leaderboard = self.lb_generator.generate(
-                        stat_idx=stat_idx,
-                        limit=20,
-                        faction=faction,
-                        use_cache=True
-                    )
+                    with db_connection.session_scope() as session:
+                        from ..leaderboard.generator import LeaderboardGenerator
+                        generator = LeaderboardGenerator(session)
+                        
+                        leaderboard = generator.generate(
+                            stat_idx=stat_idx,
+                            limit=20,
+                            faction=faction,
+                            use_cache=True
+                        )
 
                     if 'error' in leaderboard:
                         await query.edit_message_text(
@@ -391,20 +387,23 @@ Select a category to view the leaderboard:
                 await query.edit_message_text("❌ Invalid stat category.")
                 return
         
-        # Get database session
-        session = context.bot_data.get('session')
-        if not session:
+        # Get database connection
+        db_connection = context.bot_data.get('db_connection')
+        if not db_connection:
             await query.edit_message_text("⚠️ Database error. Please try again later.")
             return
         
         try:
             # Generate leaderboard for the specific period
-            leaderboard = self.lb_generator.generate(
-                stat_idx=stat_idx,
-                period=period,
-                limit=20,
-                use_cache=True
-            )
+            with db_connection.session_scope() as session:
+                generator = LeaderboardGenerator(session)
+                
+                leaderboard = generator.generate(
+                    stat_idx=stat_idx,
+                    period=period,
+                    limit=20,
+                    use_cache=True
+                )
             
             if 'error' in leaderboard:
                 await query.edit_message_text(
