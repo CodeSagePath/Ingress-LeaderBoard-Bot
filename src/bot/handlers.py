@@ -42,12 +42,12 @@ class BotHandlers:
         self.STAT_MAPPING = {
             'ap': 6,           # Lifetime AP
             'explorer': 8,     # Unique Portals Visited
-            'connector': 15,    # Links Created
-            'mindcontroller': 16, # Control Fields Created
-            'recharger': 20,    # XM Recharged
-            'builder': 14,       # Resonators Deployed
-            'hacker': 28,        # Hacks
-            'trekker': 13,        # Distance Walked
+            'connector': 17,    # Links Created
+            'mindcontroller': 18, # Control Fields Created
+            'recharger': 22,    # XM Recharged
+            'builder': 16,       # Resonators Deployed
+            'hacker': 26,        # Hacks
+            'trekker': 47,        # Distance Walked
         }
 
     @command_error_tracking("start")
@@ -582,15 +582,21 @@ Compare your performance within your faction or across all agents!
             return {'error': 'Could not create database session'}
 
         try:
-            # Extract required fields from parsed data
-            agent_name = parsed_data.get(1, {}).get('value', '').strip()
-            faction = parsed_data.get(2, {}).get('value', '').strip()
-            date_str = parsed_data.get(3, {}).get('value', '').strip()
-            time_str = parsed_data.get(4, {}).get('value', '').strip()
-            level_str = parsed_data.get(5, {}).get('value', '0').replace(',', '')
-            lifetime_ap_str = parsed_data.get(6, {}).get('value', '0').replace(',', '')
-            current_ap_str = parsed_data.get(7, {}).get('value', '0').replace(',', '')
-            xm_collected_str = parsed_data.get(11, {}).get('value', '0').replace(',', '')
+            # Extract required fields by canonical name (header-driven)
+            def _find_stat(name):
+                for key, stat in parsed_data.items():
+                    if isinstance(stat, dict) and stat.get('canonical_name') == name:
+                        return stat.get('value', '').strip()
+                return ''
+
+            agent_name = _find_stat('Agent Name')
+            faction = _find_stat('Agent Faction')
+            date_str = _find_stat('Date (yyyy-mm-dd)')
+            time_str = _find_stat('Time (hh:mm:ss)')
+            level_str = _find_stat('Level').replace(',', '') or '0'
+            lifetime_ap_str = _find_stat('Lifetime AP').replace(',', '') or '0'
+            current_ap_str = _find_stat('Current AP').replace(',', '') or '0'
+            xm_collected_str = _find_stat('XM Collected').replace(',', '') or '0'
 
             # Validate required fields
             if not agent_name:
@@ -698,36 +704,43 @@ Compare your performance within your faction or across all agents!
 
             # Create individual stat records
             stats_count = 0
-            for stat_idx, stat_data in parsed_data.items():
-                if isinstance(stat_idx, int) and stat_idx > 0:  # Skip index 0 and non-int keys
-                    stat_name = stat_data.get('name', '')
-                    stat_value_str = stat_data.get('value', '0')
-                    stat_type = stat_data.get('type', 'N')
-                    original_pos = stat_data.get('original_pos', 0)
+            for key, stat_data in parsed_data.items():
+                # Accept int keys (known stats) and 'unknown_*' keys (new stats)
+                if not isinstance(stat_data, dict) or 'canonical_name' not in stat_data:
+                    continue
+                
+                stat_idx_val = stat_data.get('idx', 0)
+                if stat_idx_val == 0:  # Skip Time Span (idx 0)
+                    continue
+                    
+                stat_name = stat_data.get('canonical_name', '')
+                stat_value_str = str(stat_data.get('value', '0'))
+                stat_type = stat_data.get('type', 'N')
+                original_pos = stat_data.get('position', 0)
 
-                    # Parse numeric values
-                    stat_value = 0
-                    if stat_type == 'N':
-                        try:
-                            stat_value = int(stat_value_str.replace(',', ''))
-                        except ValueError:
-                            logger.warning(f"Invalid numeric value for {stat_name}: {stat_value_str}")
-                            continue
+                # Parse numeric values
+                stat_value = 0
+                if stat_type == 'N':
+                    try:
+                        stat_value = int(stat_value_str.replace(',', ''))
+                    except ValueError:
+                        logger.warning(f"Invalid numeric value for {stat_name}: {stat_value_str}")
+                        continue
 
-                    agent_stat = AgentStat(
-                        submission_id=stats_submission.id,
-                        stat_idx=stat_idx,
-                        stat_name=stat_name,
-                        stat_value=stat_value,
-                        stat_type=stat_type,
-                        original_position=original_pos
-                    )
-                    session.add(agent_stat)
-                    stats_count += 1
+                agent_stat = AgentStat(
+                    submission_id=stats_submission.id,
+                    stat_idx=stat_idx_val,
+                    stat_name=stat_name,
+                    stat_value=stat_value,
+                    stat_type=stat_type,
+                    original_position=original_pos
+                )
+                session.add(agent_stat)
+                stats_count += 1
 
             # Create progress snapshot for monthly tracking
             # This helps with monthly leaderboards
-            for stat_idx in [6, 8, 11, 13, 14, 15, 16, 17]:  # Key stats to track
+            for stat_idx in [6, 8, 16, 17, 18, 22, 26, 47]:  # Key stats to track
                 if stat_idx in parsed_data:
                     stat_data = parsed_data[stat_idx]
                     try:

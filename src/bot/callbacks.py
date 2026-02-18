@@ -30,12 +30,12 @@ class CallbackHandlers:
         self.STAT_MAPPING = {
             'ap': 6,           # Lifetime AP
             'explorer': 8,     # Unique Portals Visited
-            'connector': 15,    # Links Created
-            'mindcontroller': 16, # Control Fields Created
-            'recharger': 20,    # XM Recharged
-            'builder': 14,       # Resonators Deployed
-            'hacker': 28,        # Hacks
-            'trekker': 13,        # Distance Walked
+            'connector': 17,    # Links Created
+            'mindcontroller': 18, # Control Fields Created
+            'recharger': 22,    # XM Recharged
+            'builder': 16,       # Resonators Deployed
+            'hacker': 26,        # Hacks
+            'trekker': 47,        # Distance Walked
         }
 
     async def handle_leaderboard_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -454,16 +454,16 @@ Select a category to view the leaderboard:
                 InlineKeyboardButton("🔍 Unique Portals", callback_data='lb_8')
             ],
             [
-                InlineKeyboardButton("🔗 Links Created", callback_data='lb_15'),
-                InlineKeyboardButton("🧠 Control Fields", callback_data='lb_16')
+                InlineKeyboardButton("🔗 Links Created", callback_data='lb_17'),
+                InlineKeyboardButton("🧠 Control Fields", callback_data='lb_18')
             ],
             [
-                InlineKeyboardButton("⚡ XM Recharged", callback_data='lb_20'),
-                InlineKeyboardButton("🔨 Resonators", callback_data='lb_14')
+                InlineKeyboardButton("⚡ XM Recharged", callback_data='lb_22'),
+                InlineKeyboardButton("🔨 Resonators", callback_data='lb_16')
             ],
             [
-                InlineKeyboardButton("👟 Distance Walked", callback_data='lb_13'),
-                InlineKeyboardButton("💬 Hacks", callback_data='lb_28')
+                InlineKeyboardButton("👟 Distance Walked", callback_data='lb_47'),
+                InlineKeyboardButton("💬 Hacks", callback_data='lb_26')
             ],
             [
                 InlineKeyboardButton("💚 Enlightened", callback_data='faction_enl'),
@@ -546,16 +546,16 @@ Select a category to view the leaderboard:
                 InlineKeyboardButton("🔍 Unique Portals", callback_data=f'lb_8{faction_suffix}')
             ],
             [
-                InlineKeyboardButton("🔗 Links Created", callback_data=f'lb_15{faction_suffix}'),
-                InlineKeyboardButton("🧠 Control Fields", callback_data=f'lb_16{faction_suffix}')
+                InlineKeyboardButton("🔗 Links Created", callback_data=f'lb_17{faction_suffix}'),
+                InlineKeyboardButton("🧠 Control Fields", callback_data=f'lb_18{faction_suffix}')
             ],
             [
-                InlineKeyboardButton("⚡ XM Recharged", callback_data=f'lb_20{faction_suffix}'),
-                InlineKeyboardButton("🔨 Resonators", callback_data=f'lb_14{faction_suffix}')
+                InlineKeyboardButton("⚡ XM Recharged", callback_data=f'lb_22{faction_suffix}'),
+                InlineKeyboardButton("🔨 Resonators", callback_data=f'lb_16{faction_suffix}')
             ],
             [
-                InlineKeyboardButton("👟 Distance Walked", callback_data=f'lb_13{faction_suffix}'),
-                InlineKeyboardButton("💬 Hacks", callback_data=f'lb_28{faction_suffix}')
+                InlineKeyboardButton("👟 Distance Walked", callback_data=f'lb_47{faction_suffix}'),
+                InlineKeyboardButton("💬 Hacks", callback_data=f'lb_26{faction_suffix}')
             ],
             [
                 InlineKeyboardButton("« All Factions", callback_data='faction_all')
