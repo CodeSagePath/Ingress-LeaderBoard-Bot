@@ -30,12 +30,12 @@ def test_callback_handlers_initialization():
         expected_mappings = {
             'ap': 6,
             'explorer': 8,
-            'connector': 15,
-            'mindcontroller': 16,
-            'recharger': 20,
-            'builder': 14,
-            'hacker': 28,
-            'trekker': 13
+            'connector': 17,
+            'mindcontroller': 18,
+            'recharger': 22,
+            'builder': 16,
+            'hacker': 26,
+            'trekker': 47
         }
 
         for key, expected_value in expected_mappings.items():
@@ -67,7 +67,7 @@ def test_stat_validation():
         handlers = CallbackHandlers()
 
         # Test valid stat indices
-        valid_stats = [6, 8, 13, 14, 15, 16, 20, 28]
+        valid_stats = [6, 8, 17, 18, 22, 16, 26, 47]
         for stat_idx in valid_stats:
             stat_def = get_stat_by_idx(stat_idx)
             if stat_def:
@@ -101,12 +101,12 @@ def test_callback_data_parsing():
         test_cases = [
             ('lb_6', 6, 'Lifetime AP'),
             ('lb_8', 8, 'Unique Portals Visited'),
-            ('lb_15', 15, 'Links Created'),
-            ('lb_16', 16, 'Control Fields Created'),
-            ('lb_20', 20, 'XM Recharged'),
-            ('lb_14', 14, 'Resonators Deployed'),
-            ('lb_28', 28, 'Hacks'),
-            ('lb_13', 13, 'Distance Walked'),
+            ('lb_17', 17, 'Links Created'),
+            ('lb_18', 18, 'Control Fields Created'),
+            ('lb_22', 22, 'XM Recharged'),
+            ('lb_16', 16, 'Resonators Deployed'),
+            ('lb_26', 26, 'Hacks'),
+            ('lb_47', 47, 'Distance Walked'),
         ]
 
         for callback_data, expected_idx, expected_name in test_cases:

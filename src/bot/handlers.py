@@ -299,16 +299,16 @@ Keep your stats up to date to improve your leaderboard rankings!
                 InlineKeyboardButton("🔍 Unique Portals", callback_data='lb_8')
             ],
             [
-                InlineKeyboardButton("🔗 Links Created", callback_data='lb_15'),
-                InlineKeyboardButton("🧠 Control Fields", callback_data='lb_16')
+                InlineKeyboardButton("🔗 Links Created", callback_data='lb_17'),
+                InlineKeyboardButton("🧠 Control Fields", callback_data='lb_18')
             ],
             [
-                InlineKeyboardButton("⚡ XM Recharged", callback_data='lb_20'),
-                InlineKeyboardButton("🔨 Resonators", callback_data='lb_14')
+                InlineKeyboardButton("⚡ XM Recharged", callback_data='lb_22'),
+                InlineKeyboardButton("🔨 Resonators", callback_data='lb_16')
             ],
             [
-                InlineKeyboardButton("👟 Distance Walked", callback_data='lb_13'),
-                InlineKeyboardButton("💬 Hacks", callback_data='lb_28')
+                InlineKeyboardButton("👟 Distance Walked", callback_data='lb_47'),
+                InlineKeyboardButton("💬 Hacks", callback_data='lb_26')
             ],
             [
                 InlineKeyboardButton("💚 Enlightened", callback_data='faction_enl'),
