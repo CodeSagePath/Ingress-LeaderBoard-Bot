@@ -11,8 +11,12 @@ from typing import Optional
 from contextlib import contextmanager
 from datetime import datetime
 
-import psycopg2
-from psycopg2.pool import SimpleConnectionPool
+try:
+    import psycopg2
+    from psycopg2.pool import SimpleConnectionPool
+    HAS_PSYCOPG2 = True
+except ImportError:
+    HAS_PSYCOPG2 = False
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.exc import SQLAlchemyError
@@ -72,21 +76,31 @@ class DatabaseConnection:
             max_overflow: Maximum number of connections beyond pool size
         """
         try:
-            # Create SQLAlchemy engine with connection pooling
-            self.engine = create_engine(
-                self.database_url,
-                pool_size=pool_size,
-                max_overflow=max_overflow,
-                pool_pre_ping=True,  # Test connections before use
-                pool_recycle=3600,  # Recycle connections after 1 hour
-                echo=os.getenv('DB_ECHO', 'false').lower() == 'true'
-            )
+            # Create SQLAlchemy engine
+            echo = os.getenv('DB_ECHO', 'false').lower() == 'true'
+
+            if self.database_url.startswith('sqlite'):
+                # SQLite doesn't support connection pooling params
+                self.engine = create_engine(
+                    self.database_url,
+                    echo=echo
+                )
+            else:
+                # PostgreSQL with connection pooling
+                self.engine = create_engine(
+                    self.database_url,
+                    pool_size=pool_size,
+                    max_overflow=max_overflow,
+                    pool_pre_ping=True,
+                    pool_recycle=3600,
+                    echo=echo
+                )
 
             # Create session factory
             self.session_factory = sessionmaker(bind=self.engine)
 
             # Create raw connection pool only for PostgreSQL (for direct SQL when needed)
-            if self.database_url.startswith('postgresql://'):
+            if self.database_url.startswith('postgresql://') and HAS_PSYCOPG2:
                 self.connection_pool = SimpleConnectionPool(
                     minconn=1,
                     maxconn=pool_size,
