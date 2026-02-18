@@ -56,6 +56,14 @@ class StatsParser:
             headers = self._split_line(header_line)
             values = self._split_line(values_line)
 
+            # If standard splitting failed, try no-delimiter mode
+            if len(headers) < 5 or len(values) < 5:
+                logger.info("Standard splitting produced too few fields, trying no-delimiter mode")
+                headers = self._split_no_delimiter_header(header_line)
+                if len(headers) >= 5:
+                    values = self._split_no_delimiter_values(values_line, headers)
+                    logger.info(f"No-delimiter mode: {len(headers)} headers, {len(values)} values")
+
             if len(headers) < 5 or len(values) < 5:
                 return {
                     'error': f'Too few fields: {len(headers)} headers, {len(values)} values',
@@ -281,6 +289,211 @@ class StatsParser:
             values = ['ALL TIME'] + values[2:]
 
         return values
+
+    # ================================================================
+    # NO-DELIMITER SPLITTING (Telegram strips tabs)
+    # ================================================================
+
+    def _split_no_delimiter_header(self, line: str) -> List[str]:
+        """
+        Split a concatenated header line using known stat names as markers.
+        
+        When Telegram strips tabs, headers become:
+        'Time SpanAgent NameAgent Faction...'
+        
+        We find known stat names (longest first) and use their positions
+        to split the string.
+        """
+        from ..config.stats_config import STAT_ALIASES
+        
+        # Build list of all known names (canonical + aliases)
+        all_names = [s['name'] for s in STATS_DEFINITIONS]
+        all_names.extend(STAT_ALIASES.keys())
+        # Sort by length descending — match longest first to avoid partial matches
+        all_names = sorted(set(all_names), key=len, reverse=True)
+
+        # Find all matches with their positions
+        matches = []  # (start_pos, end_pos, matched_name)
+        remaining = line
+        offset = 0
+
+        # Iteratively find and mark known names
+        marked = list(range(len(line)))  # Track which chars are "claimed"
+        found_names = []  # (start, name)
+
+        for name in all_names:
+            pattern = re.compile(re.escape(name), re.IGNORECASE)
+            for match in pattern.finditer(line):
+                start, end = match.start(), match.end()
+                # Check this region hasn't been claimed by a longer match
+                if all(marked[i] == i for i in range(start, end)):
+                    found_names.append((start, match.group(0)))
+                    # Mark these positions as claimed
+                    for i in range(start, end):
+                        marked[i] = -1
+
+        # Sort by position in the original string
+        found_names.sort(key=lambda x: x[0])
+
+        # Extract just the names in order
+        headers = [name for _, name in found_names]
+
+        if headers:
+            logger.info(f"No-delimiter header split: found {len(headers)} stat names")
+
+        return headers
+
+    def _split_no_delimiter_values(self, line: str, headers: List[str]) -> List[str]:
+        """
+        Split a concatenated values line using header types as guides.
+        
+        When Telegram strips tabs, values become:
+        'ALL TIMEH1GHT0WEREnlightened2026-02-1815:28:29141849712818497128...'
+        
+        Strategy:
+        1. Match structured fields first: Time Span, Agent Name, Faction, Date, Time
+        2. For the remaining digit stream (Level + all numeric stats):
+           use domain knowledge to split intelligently
+        """
+        from ..config.stats_config import resolve_stat_name
+
+        values = []
+        pos = 0
+        text = line
+
+        for i, header in enumerate(headers):
+            if pos >= len(text):
+                values.append('')
+                continue
+
+            remaining = text[pos:]
+            stat_def, canonical = resolve_stat_name(header)
+            stat_type = stat_def['type'] if stat_def else 'S'
+            stat_name = canonical
+
+            value = None
+
+            # --- Special pattern matching by known stat name ---
+            if stat_name == 'Time Span':
+                m = re.match(r'(ALL\s*TIME|LAST\s+\d+\s+DAYS?)', remaining, re.IGNORECASE)
+                if m:
+                    value = m.group(0)
+
+            elif stat_name == 'Agent Faction':
+                m = re.match(r'(Enlightened|Resistance)', remaining, re.IGNORECASE)
+                if m:
+                    value = m.group(0)
+
+            elif stat_name == 'Date (yyyy-mm-dd)':
+                m = re.match(r'(\d{4}-\d{2}-\d{2})', remaining)
+                if m:
+                    value = m.group(0)
+
+            elif stat_name == 'Time (hh:mm:ss)':
+                m = re.match(r'(\d{1,2}:\d{2}:\d{2})', remaining)
+                if m:
+                    value = m.group(0)
+
+            elif stat_name == 'Level':
+                # Level in Ingress is always 1-16 (1 or 2 digits)
+                m = re.match(r'(\d{1,2})', remaining)
+                if m:
+                    lvl = int(m.group(0))
+                    if lvl > 16 and len(m.group(0)) == 2:
+                        # If 2-digit value > 16, it's likely just 1 digit
+                        value = m.group(0)[0]
+                    else:
+                        value = m.group(0)
+
+            elif stat_type == 'N':  # Other numeric stats
+                # Count how many numeric headers remain (including current)
+                remaining_numeric_count = sum(
+                    1 for j in range(i, len(headers))
+                    if resolve_stat_name(headers[j])[0]
+                    and resolve_stat_name(headers[j])[0]['type'] == 'N'
+                    and resolve_stat_name(headers[j])[1] != 'Level'
+                )
+                # Extract the full digit stream from current position
+                m = re.match(r'(\d+)', remaining)
+                if m:
+                    digit_stream = m.group(0)
+                    if remaining_numeric_count <= 1:
+                        # Last numeric field — take all remaining digits
+                        value = digit_stream
+                    else:
+                        # Split the digit stream: estimate avg digits per field
+                        avg_digits = max(1, len(digit_stream) // remaining_numeric_count)
+                        # Use at least 1 digit, at most avg_digits + a bit of flexibility
+                        take = max(1, min(avg_digits, len(digit_stream) - remaining_numeric_count + 1))
+                        value = digit_stream[:take]
+
+            # --- Fallback: Agent Name and other string fields ---
+            if value is None:
+                if stat_type == 'S':
+                    # For string fields, consume until the next known pattern starts
+                    next_value = self._find_next_value_boundary(remaining, i, headers)
+                    if next_value is not None:
+                        value = remaining[:next_value]
+                    else:
+                        value = remaining  # Take the rest
+                else:
+                    # Unknown — take until next recognized pattern
+                    m = re.match(r'([^\d]*\d[\d,]*)', remaining)
+                    if m:
+                        value = m.group(1)
+                    else:
+                        value = remaining
+
+            value = value.strip() if value else ''
+            values.append(value)
+            pos += len(value) if value else 0
+
+        return values
+
+    def _find_next_value_boundary(self, remaining: str, current_idx: int, headers: List[str]) -> Optional[int]:
+        """
+        Find where the next value starts in a no-delimiter string.
+        
+        Looks ahead at the next header's expected type to find a boundary.
+        """
+        from ..config.stats_config import resolve_stat_name
+
+        if current_idx + 1 >= len(headers):
+            return None
+
+        next_header = headers[current_idx + 1]
+        next_def, next_canonical = resolve_stat_name(next_header)
+        next_type = next_def['type'] if next_def else 'S'
+
+        # Try to find where the next value starts
+        if next_canonical == 'Agent Faction':
+            m = re.search(r'(Enlightened|Resistance)', remaining, re.IGNORECASE)
+            if m:
+                return m.start()
+
+        elif next_canonical == 'Date (yyyy-mm-dd)':
+            m = re.search(r'\d{4}-\d{2}-\d{2}', remaining)
+            if m:
+                return m.start()
+
+        elif next_canonical == 'Time (hh:mm:ss)':
+            m = re.search(r'\d{1,2}:\d{2}:\d{2}', remaining)
+            if m:
+                return m.start()
+
+        elif next_type == 'N':
+            # Next field is numeric — find where digits start
+            # But be careful: agent names can contain digits (e.g. H1GHT0WER)
+            # Look for a faction name first as a better boundary
+            faction_match = re.search(r'(Enlightened|Resistance)', remaining, re.IGNORECASE)
+            if faction_match:
+                return faction_match.start()
+            # Otherwise find the digit boundary
+            m = re.search(r'\d', remaining)
+            if m:
+                return m.start()
+
+        return None
 
     # ================================================================
     # HEADER-DRIVEN PARSING
