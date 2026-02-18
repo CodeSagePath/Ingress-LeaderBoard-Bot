@@ -334,16 +334,28 @@ python main.py
 
 ### Running Tests
 
+#### 1. Automated Tests (Unit Tests)
+Deeply tests database logic, validation, and parsing.
+
 ```bash
 # Install test dependencies
 pip install pytest pytest-asyncio
 
-# Run tests
+# Run all tests
 pytest tests/
 
-# Run with coverage
-pytest tests/ --cov=src --cov-report=html
+# Run specific test file
+pytest tests/test_database.py
 ```
+
+#### 2. Manual/Interactive Testing
+Test the bot logic without connecting to Telegram (safe for dev).
+
+```bash
+# Run the interactive simulator
+python test_bot_interactively.py
+```
+This script mimics a user sending stats to the bot and shows you the response.
 
 ### Code Style
 
@@ -354,43 +366,22 @@ The project follows these conventions:
 - Database transactions and connection pooling
 - Structured logging with performance monitoring
 
-## Deployment
+## Deployment to Termux
 
-### Docker Deployment
+This bot is designed to run on **Termux (Android)** using a shared server configuration.
 
-```bash
-# Build image
-docker build -t ingress-leaderboard-bot .
+### Quick Setup
 
-# Run with environment variables
-docker run --env-file .env ingress-leaderboard-bot
-```
+1.  **Set up the Server Manager:**
+    Follow the guide in the `termux-server-config` repository.
+    
+2.  **Deploy this Bot:**
+    Clone this into `~/projects/ingress_bot` on your phone.
 
-### Railway
+3.  **Start:**
+    Run `bash ~/projects/termux-server-config/start-bots.sh`
 
-```bash
-# Install Railway CLI
-npm install -g @railway/cli
-
-# Deploy
-railway login
-railway init
-railway up
-```
-
-### Heroku
-
-```bash
-# Create Heroku app
-heroku create ingress-leaderboard-bot
-
-# Set environment variables
-heroku config:set TELEGRAM_BOT_TOKEN=your_token
-heroku config:set DB_URL=your_database_url
-
-# Deploy
-git push heroku main
-```
+For full instructions, see the **[Termux Deployment Manual](https://github.com/CodeSagePath/termux-server-config)** in your server config repo.
 
 ## Stats Format
 
